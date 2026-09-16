@@ -33,7 +33,17 @@ export default function InvoiceDetail() {
     try {
       const res = await invoiceApi.downloadInvoicePdf(id);
       const url = URL.createObjectURL(res.data);
-      window.open(url, '_blank');
+      // `Content-Disposition`'s filename (set server-side to the real invoice number)
+      // only applies to a direct network navigation — a blob: URL has no such header, so
+      // window.open on its own left the browser to invent a random UUID filename on save.
+      // An <a download> click is what actually gives a blob URL a real filename.
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${invoice.invoiceNo}.pdf`;
+      a.click();
+      // Revoking on the same tick can race the browser's own download start in some
+      // browsers — a short delay lets it actually grab the blob first.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } finally {
       setDownloading(false);
     }

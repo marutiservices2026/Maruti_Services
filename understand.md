@@ -12,11 +12,14 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (found a real production bug live — "Download PDF" 500s on every
-invoice, because Puppeteer's bundled Chromium can't launch on Render's default Node
-runtime; fixed by switching `render.yaml` to `runtime: docker`, which the prepared
-`Dockerfile` already supports — still needs a commit+push and possibly a manual Render
-dashboard step to actually take effect on the live service; see §9. Also: Supplier's Ref. on the classic invoice template now
+Last updated: 2026-09-16 (the PDF-500 production bug is fully resolved: a second Render
+service (`maruti-services-docket`, Docker runtime) was created since the original
+`maruti-services` service turned out not to be Blueprint-linked and couldn't switch runtime
+in place; verified with a real authenticated PDF request over curl (200, real 2-page PDF).
+User chose to repoint the frontend at the new service's own URL rather than delete+rename to
+reclaim the old one — three things had to move together (Vercel's `VITE_API_BASE_URL`, the
+new service's own `CLIENT_URL`, and the keep-alive workflow's `RENDER_APP_URL`); see §9.
+Also: Supplier's Ref. on the classic invoice template now
 auto-defaults to the invoice's own sequence number, no leading zeros — `GST-0001` -> `"1"`
 — unless the user types their own value; see §5. Also: frontend now also deployed and live, at
 `https://marutiservices-rho.vercel.app`; fixed a real CORS bug in `backend/.env.production`'s
@@ -747,6 +750,23 @@ surfaced several real issues, now fixed:
   `confirmLabel: 'Cancel Invoice'` explicitly. Worth checking when adding a new
   `confirmDialog` call for something that isn't literally a delete — the default label is
   right for deletes only.
+- **Downloaded PDF got a random UUID filename instead of the invoice number, added
+  2026-09-16.** `InvoiceDetail.jsx`'s `handleDownload` did `URL.createObjectURL(res.data)`
+  then `window.open(url, '_blank')` — opening a blob URL in a new tab. The backend already
+  sets `Content-Disposition: inline; filename="GST-0002.pdf"` (`invoice.controller.js`), but
+  that header only applies to a direct network navigation; a `blob:` URL carries none of it,
+  so when the user manually saved from the opened tab, the browser invented its own
+  filename (a random UUID) instead. Fixed by building a temporary `<a>` with `download =
+  '${invoice.invoiceNo}.pdf'` and calling `.click()` on it — the `download` attribute is
+  what actually names a blob URL's save, `Content-Disposition` doesn't reach it.
+  `URL.revokeObjectURL` moved to a 1s `setTimeout` after the click rather than the same
+  tick, since revoking immediately can race the browser's own download start in some
+  browsers. Also changes UX slightly: PDFs now download straight away instead of opening
+  an inline preview tab first — matches what the button is actually labeled ("Download
+  PDF"), not a regression. Verified the actual browser mechanism (not just reading the
+  diff) via a Playwright `page.waitForEvent('download')` test against the identical
+  blob+anchor pattern: `download.suggestedFilename()` → `"GST-0002.pdf"`, confirmed exact
+  match.
 - **No way to add a new party mid-invoice without losing everything already filled in** —
   the Buyer `<select>` only offered existing parties; leaving the page to create one
   elsewhere discarded the whole in-progress invoice with no warning. Fixed with a "+ New"
@@ -1615,8 +1635,43 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     switch an *existing* service's runtime in place, may also need the user to check
     Render's dashboard (Settings → Environment) or, if that option isn't offered for an
     existing service, delete and recreate the web service from the Blueprint so it picks up
-    `runtime: docker` on creation. Not yet verified end-to-end post-fix — re-test "Download
-    PDF" once redeployed.
+    `runtime: docker` on creation.
+  - **Resolved, 2026-09-16.** Confirmed live: pushing the `render.yaml` change alone did
+    **not** switch the existing `maruti-services` service's runtime — its build log kept
+    showing `Running build command 'npm i'`, and its Settings showed a plain (non-Docker)
+    Build Command / Start Command, meaning it was actually created as a manually-configured
+    Node Web Service, not one linked to `render.yaml` via Render's Blueprint flow at all —
+    editing that file was never going to affect it. Render also does not offer an in-place
+    Environment/Runtime change for an existing service. **Fix: created a second, brand-new
+    Render Web Service** (`maruti-services-docket`, Root Directory `backend`, Dockerfile
+    Path `.` i.e. `backend/Dockerfile`, Environment: Docker, same repo/branch, env vars
+    copied from `backend/.env.production`) alongside the old one, rather than trying to
+    convert the original in place. Verified for real — not just a health check — by logging
+    in against its live API with the real production credentials and requesting `GST-0001`'s
+    PDF directly: `POST /invoices/pdf` → `200`, `Content-Type: application/pdf`, a genuine
+    435 KB 2-page PDF. **The user chose the simpler of two ways to cut over**: rather than
+    deleting the old service and renaming the new one to reclaim the exact
+    `maruti-services.onrender.com` URL (zero-downtime-adjacent but fiddlier), they're
+    keeping both services and just repointing the frontend at the new service's own
+    permanent URL, `https://maruti-services-docket.onrender.com`. **This means the old
+    `maruti-services` (Node) service is now dead weight** — still exists, still costs
+    nothing on the free plan, but nothing points at it anymore; fine to delete whenever,
+    not urgent. Three things had to move together for this cutover, all flagged live as
+    each came up:
+    1. `frontend/.env.production`'s `VITE_API_BASE_URL` → `https://maruti-services-
+       docket.onrender.com/api/v1` (updated here for reference, but since this file is
+       gitignored — Vercel never reads it from the repo — the real change has to be made
+       directly in Vercel's Project Settings → Environment Variables, then a fresh deploy
+       triggered, since Vite bakes `VITE_*` vars in at build time; saving the dashboard
+       value alone doesn't touch already-built static assets).
+    2. The new service's own `CLIENT_URL` must independently be
+       `https://marutiservices-rho.vercel.app` (no trailing slash) — it's a separate env
+       var on the new service, not inherited from the old one.
+    3. The keep-alive workflow's `RENDER_APP_URL` repo variable must be updated from
+       `https://maruti-services.onrender.com` to `https://maruti-services-docket.onrender.com`
+       — otherwise it silently keeps pinging the now-abandoned old service forever while
+       the actual live backend gets no keep-alive at all, quietly reintroducing the
+       free-tier 15-minute sleep problem this whole mechanism exists to prevent.
   - **`backend/.env.production`'s `CLIENT_URL` had a real bug when the user first filled it
     in**: set to `https://marutiservices-rho.vercel.app/login` (with a path). `index.js`
     does `cors({ origin: env.clientUrl, ... })`, an exact-match check against the browser's
