@@ -27,19 +27,29 @@ export default function Dashboard() {
     const now = new Date();
     const firstOfMonth = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
 
+    // On first mount, the Sales Report section's own filter (from/to) is still empty, so
+    // its GST summary request would be `{}` — identical to the KPI row's own all-time
+    // `gstSummary({})` call below. Rather than fire that exact same request twice, fetch it
+    // once here and reuse the result for both; `salesRegister` isn't affected the same way
+    // (the KPI row deliberately scopes it to month-to-date while the report defaults to
+    // all-time — two genuinely different queries, not a duplicate), so that one still needs
+    // its own separate report-section fetch.
     Promise.all([
       reportApi.salesRegister({ from: firstOfMonth }),
       invoiceApi.listInvoices({ page: 1, limit: 200 }),
       reportApi.gstSummary({}),
-    ]).then(([salesRes, invoicesRes, summaryRes]) => {
+      reportApi.salesRegister({}),
+    ]).then(([salesRes, invoicesRes, summaryRes, allTimeSalesRes]) => {
       setMonthSales(salesRes.data.data.totals.totalAmount);
       const drafts = invoicesRes.data.data.data.filter((inv) => inv.status === 'draft').length;
       setDraftInvoices(drafts);
       setGstPayable(summaryRes.data.data.gstPayable);
       setLoading(false);
-    });
 
-    loadReport();
+      setSummary(summaryRes.data.data);
+      setSales(allTimeSalesRes.data.data);
+      setReportLoading(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

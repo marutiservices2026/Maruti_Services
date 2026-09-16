@@ -12,7 +12,10 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (fixed a Company-not-found/infinite-loading bug caused by editing
+Last updated: 2026-09-16 (found and fixed a genuine duplicate API call on Dashboard mount —
+`gst-summary` was fetched twice with identical params; StrictMode's expected dev-only
+double-invoke was masking/amplifying it, which is what made it visible in DevTools — see §6.
+Also: fixed a Company-not-found/infinite-loading bug caused by editing
 `.env` without restarting the backend — the running server kept using its old in-memory
 Atlas connection after `.env` was switched back to local; general gotcha, not just a
 MongoDB one — see §9. Also: pushed this repo to GitHub (`marutiservices2026/Maruti_Services`).
@@ -1033,6 +1036,44 @@ status filter).
   Clear/Today buttons' border is now the intentional transparent one from `.btn` and their
   hover background actually changes; screenshots confirm both the open Select popup and the
   fixed DatePicker footer read as intentional custom design now.
+
+### Dashboard: a genuine duplicate API call, found via DevTools and fixed (2026-09-16)
+The user noticed the Network tab showing the same endpoints firing repeatedly and asked
+whether something was looping. It wasn't a loop — confirmed live by watching network
+traffic while the app sat idle on a page for 10s: zero requests fired, nothing polls. Most
+of what looked suspicious is `main.jsx`'s `<React.StrictMode>` (present from the start of
+this project), which intentionally double-invokes effects in dev — every fetch normally
+fires twice, dev-only, harmless by design, gone in a production build. **But one genuine
+redundancy was hiding under that noise**: `Dashboard.jsx`'s mount effect fired
+`reportApi.gstSummary` **twice** with *identical* parameters — once directly for the KPI
+row's "GST Payable" figure (`gstSummary({})`, always all-time), and once via `loadReport()`
+being called right after for the Sales Report section below, whose own `from`/`to` filter
+state is empty on first mount, making its params `{from: undefined, to: undefined}` —
+functionally the same all-time request as the KPI's, just spelled differently. Confirmed via
+live request-count checks: `gst-summary` fired 4 times on a fresh Dashboard load (2× the
+expected 2 from StrictMode alone) before the fix, exactly 2 after it.
+- **Fix:** the mount effect now fetches everything it needs in a single `Promise.all`
+  (`salesRegister` month-to-date for the KPI, `invoices/list` for the draft count,
+  `gstSummary({})` once, and `salesRegister({})` once for the report section's all-time
+  default) and populates *both* the KPI state and the report-section state from those same
+  results — no more calling `loadReport()` redundantly on mount. `loadReport()` itself is
+  untouched and still does the real work when the user actually changes the date filter and
+  clicks Apply.
+- **`salesRegister` firing 4 times (2× per mount) was NOT touched — that one's correct, not
+  a bug.** The KPI row deliberately wants month-to-date sales (`{from: firstOfMonth}`) while
+  the Sales Report section defaults to all-time (`{}`) — two genuinely different queries
+  that happen to share a name, not an accidental duplicate the way the `gstSummary` calls
+  were. Don't "fix" that into one call without changing what either section is supposed to
+  show.
+- Verified live: `gst-summary` request count dropped from 4 to 2 on a fresh Dashboard load;
+  the KPI row's "GST Payable" and the Sales Report section's own "GST Payable" figure still
+  matched each other afterward (both read `74,281.26` off the real data) — confirming the
+  refactor didn't silently break either value while removing the duplicate fetch; clicking
+  "Apply" still fires exactly the expected `gst-summary` + `sales-register` pair via the
+  untouched `loadReport()`.
+- In a real (non-StrictMode-doubled) production build, this removes exactly one redundant
+  HTTP request from every Dashboard page load — modest, but it was genuinely wasted work,
+  not just visual noise in DevTools.
 
 ---
 
