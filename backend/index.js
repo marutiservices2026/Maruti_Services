@@ -32,6 +32,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// GET /health — the one deliberate exception to this app's "every route is POST" rule
+// (see router.js's own header comment and CLAUDE.md). Health checks are conventionally GET
+// everywhere — Render's own platform health monitoring (see render.yaml's
+// `healthCheckPath`) and the external keep-alive pinger both expect it, and neither should
+// need to know this API's POST-only convention just to ask "are you up." Deliberately does
+// NOT touch the database — the whole point is confirming the Node process itself is alive
+// and responding, so a transient DB hiccup shouldn't make this report unhealthy.
+app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+
 app.use('/api/v1', router);
 
 // Unmatched routes flow through the same ApiError -> error.middleware.js shape rather

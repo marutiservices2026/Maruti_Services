@@ -20,7 +20,10 @@ section following the existing structure and note the date. Full protocol is in
 
 ## A few conventions worth knowing before you touch anything
 
-- Every backend API route is **POST-only** — see `understand.md` §2 before adding a route.
+- Every backend API route is **POST-only, with exactly one exception: `GET /health`**
+  (added 2026-09-16, for Render's own health monitoring and a keep-alive pinger — see
+  `understand.md` §2 and §9). Don't add another GET/PUT/PATCH/DELETE route without being
+  explicitly asked.
 - Controllers never touch Mongoose models directly — always go through `backend/methods.js`
   (services are the exception). See `understand.md` §2 and §5.
 - The keyboard-first UX system (`Alt+1..7`, `Space`, `Backspace`, `Ctrl+Enter`, `Alt+D/I`) is

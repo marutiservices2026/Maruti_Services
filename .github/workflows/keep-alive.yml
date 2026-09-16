@@ -1,0 +1,38 @@
+# keep-alive.yml — pings the deployed backend's /health endpoint every 14 minutes so
+# Render's free plan (which auto-sleeps a service after ~15 minutes with no incoming
+# requests) never actually goes idle long enough to spin down. This is the standard
+# workaround for that free-tier behavior; on a paid Render plan it's unnecessary but
+# harmless.
+#
+# Setup (one-time, after the backend is actually deployed to Render):
+#   Repo Settings -> Secrets and variables -> Actions -> Variables -> New repository
+#   variable, name RENDER_APP_URL, value the deployed backend's base URL with no
+#   trailing slash (e.g. https://gst-billing-backend.onrender.com). Until that variable
+#   is set, every run of this workflow just logs that and exits — it does not fail the
+#   workflow or send requests anywhere.
+name: Keep Render backend awake
+
+on:
+  schedule:
+    # Cron doesn't divide 60 evenly by 14, so the gap from :56 to the next hour's :00 is
+    # only 4 minutes rather than 14 — harmless (a slightly-early extra ping), and still
+    # guarantees the real constraint: no gap ever exceeds 14 minutes, safely under
+    # Render's 15-minute idle threshold. GitHub's own scheduler can run a few minutes late
+    # under load; 14 (not 15) was chosen to leave that margin, not because the interval
+    # needs to be exact.
+    - cron: '*/14 * * * *'
+  workflow_dispatch: {} # lets you trigger a manual run from the Actions tab to test setup
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        env:
+          RENDER_APP_URL: ${{ vars.RENDER_APP_URL }}
+        run: |
+          if [ -z "$RENDER_APP_URL" ]; then
+            echo "RENDER_APP_URL repository variable is not set yet — nothing to ping. See this file's header comment for setup."
+            exit 0
+          fi
+          curl -sf --max-time 20 "$RENDER_APP_URL/health" && echo "OK" || echo "Ping failed (service may be cold-starting from a prior sleep, or genuinely down)"

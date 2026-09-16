@@ -9,6 +9,11 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node index.js
+    # GET /health (index.js — the one deliberate exception to this API's POST-only
+    # convention) — Render pings this to decide whether the service is up. Separate from,
+    # but complementary to, the .github/workflows/keep-alive.yml scheduled ping that exists
+    # specifically to stop the free plan's 15-minutes-idle auto-sleep from kicking in at all.
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production

@@ -12,7 +12,10 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (migrated the real Company record — only the company, no parties/
+Last updated: 2026-09-16 (added Render free-tier keep-alive prep: a new `GET /health`
+route — the one deliberate exception to the POST-only convention — plus a GitHub Actions
+workflow that pings it every 14 minutes once `RENDER_APP_URL` is set post-deploy; see §2 and
+§9. Also: migrated the real Company record — only the company, no parties/
 products/invoices — from local to Atlas, and created a real production login directly in
 the database since the app has no "add a user to an existing company" flow; verified live
 via a temporary second backend instance, not just a raw DB read. See §9. Also: found and
@@ -89,7 +92,10 @@ independently.
 These are load-bearing decisions made early and applied consistently everywhere. Breaking
 one of these in a new feature is very likely a mistake, not a legitimate exception.
 
-1. **Every backend route is POST — no GET/PUT/PATCH/DELETE, anywhere.** Filters, IDs, and
+1. **Every backend route is POST — no GET/PUT/PATCH/DELETE, with exactly one exception:
+   `GET /health` (added 2026-09-16, registered directly in `index.js`, not `router.js` —
+   see its own comment there for why, and §9 for the keep-alive pinger it exists for).**
+   Every other route, including this one's neighbors, stays POST — filters, IDs, and
    pagination that would normally be query params or path params travel in the JSON request
    body instead. See `backend/router.js` line 1's comment. This applies even to "detail" and
    "list" endpoints (`/invoices/detail`, `/parties/list`, etc.) and to "delete" endpoints
@@ -99,8 +105,9 @@ one of these in a new feature is very likely a mistake, not a legitimate excepti
 3. **Controllers never touch Mongoose models directly.** All DB access goes through
    `backend/methods.js` (a centralized thin wrapper: `create`, `findAll`, `findById`,
    `findOne`, `updateById`, `deleteById`, `paginate`, `aggregate`, `withTransaction`).
-   **Exception:** `services/` files (gst.service, dynamicField.service, invoiceNumber.service,
-   ewaybillOcr.service, etc.) are allowed to touch models/mongoose directly, since they
+   **Exception:** `services/` files (gst.service, invoiceNumber.service, ewaybillOcr.service,
+   etc. — NOT `dynamicField.service.js`, removed 2026-09-15 along with the custom-fields
+   system, see §6) are allowed to touch models/mongoose directly, since they
    encapsulate business logic that legitimately needs finer control.
 4. **`router.js` is the single routes file.** Every route in the whole backend is declared
    there — there is no per-feature router file. Each line: path, `authMiddleware` (unless
@@ -1460,6 +1467,39 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     serving local `gst_billing_demo`, untouched throughout) still logs in fine too.
   - Real credentials for this login are not written here — check with the user directly if
     you need them; this file is broadly readable context, not a secrets store.
+- **Render free-plan keep-alive, added 2026-09-16 (prep work — app isn't deployed yet).**
+  Render's free web-service plan auto-sleeps a service after ~15 minutes with no incoming
+  requests, then cold-starts (slow) on the next one. The user asked for this to be handled
+  proactively, before an actual deploy exists to test it against.
+  - `GET /health` — new route, registered directly in `index.js` (not `router.js`), the
+    **one deliberate exception** to this app's POST-only convention (see convention #1 in
+    §2 and the route's own comment). Returns `{status: 'ok'}`, `200`, no auth, and
+    deliberately doesn't touch the database — the point is confirming the Node process
+    itself is alive, so a transient DB hiccup shouldn't make this report unhealthy.
+    Verified live locally: `200`, correct body; confirmed it doesn't weaken the POST-only
+    rule anywhere else (`GET /api/v1/invoices/list` still correctly `404`s).
+  - `backend/render.yaml` — added `healthCheckPath: /health`, so Render's own platform
+    health monitoring (a separate concern from the free-tier sleep behavior) uses the same
+    route.
+  - `.github/workflows/keep-alive.yml` — new scheduled GitHub Actions workflow, `cron:
+    '*/14 * * * *'`, `curl`s `${{ vars.RENDER_APP_URL }}/health`. **Requires a one-time
+    manual step once the backend is actually deployed**: add a repository variable named
+    `RENDER_APP_URL` (Settings → Secrets and variables → Actions → Variables) set to the
+    deployed backend's base URL, no trailing slash. Until that variable exists, every
+    scheduled run just logs that it's unset and exits `0` — it doesn't fail the workflow or
+    send requests anywhere, so it's safe to have merged before a deploy exists. Also has a
+    `workflow_dispatch` trigger for a manual test run from the Actions tab once the variable
+    is set. `*/14` doesn't divide 60 evenly (gap from :56 to the next hour's :00 is only 4
+    minutes, not 14) — harmless, since the only real requirement is "never exceed Render's
+    15-minute idle threshold," which this still guarantees; 14 rather than 15 was chosen
+    specifically to leave margin for GitHub's own scheduler occasionally running a few
+    minutes late under load.
+  - This is genuinely necessary prep, not premature optimization — Render's sleep behavior
+    is triggered by incoming *traffic*, not by anything the app can do internally (a
+    `setInterval` inside the Node process wouldn't help; if Render has already stopped the
+    process for being idle, nothing inside that stopped process can run to wake it back up
+    — only an external request can). An external scheduled pinger is the standard, correct
+    fix for this specific problem, not a workaround for a workaround.
 - **Sandbox-specific gotcha: this dev environment blocks Node's raw DNS resolver.**
   `dns.resolve4()` / `dns.resolveSrv()` (the `c-ares`-based path Node's `dns.resolve*`
   family uses — raw UDP queries straight to a DNS server) fail with `ECONNREFUSED` for
@@ -1510,12 +1550,13 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
   Company document — no external account, no env vars, works identically in every
   environment. See the dated removal note further down for why.
 - **No CI/CD wired up, and no actual Render/Vercel deploy has happened yet.** Deployment
-  config files exist (`backend/render.yaml`, `backend/Dockerfile`, `backend/.dockerignore`)
-  targeting Render for the backend — but the app has never actually been deployed there or
-  to Vercel. A real MongoDB Atlas cluster with real credentials does exist and is reachable
-  (see the dated note above) — but as of the most recent check, `.env` is pointed at local
-  MongoDB again, not Atlas, so don't assume Atlas is the active connection without checking
-  `.env` yourself first.
+  config files exist (`backend/render.yaml`, `backend/Dockerfile`, `backend/.dockerignore`,
+  and now `.github/workflows/keep-alive.yml` — see §9's dated note) targeting Render for the
+  backend — but the app has never actually been deployed there or to Vercel. A real MongoDB
+  Atlas cluster with real credentials does exist and is reachable (see the dated note
+  above) — but as of the most recent check, `.env` is pointed at local MongoDB again, not
+  Atlas, so don't assume Atlas is the active connection without checking `.env` yourself
+  first.
 
 ---
 
