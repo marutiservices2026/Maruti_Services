@@ -12,7 +12,20 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (added Render free-tier keep-alive prep: a new `GET /health`
+Last updated: 2026-09-16 (frontend now also deployed and live, at
+`https://marutiservices-rho.vercel.app`; fixed a real CORS bug in `backend/.env.production`'s
+`CLIENT_URL` — had a `/login` path on it, which the exact-match `cors({origin: ...})` check
+in `index.js` would never match since the browser's Origin header never includes a path;
+still needs the same fix applied by hand in Render's dashboard, since `CLIENT_URL` is
+`sync: false` there. Also: backend is now actually deployed and live at
+`https://maruti-services.onrender.com`, confirmed via a real `curl /health` → `200 {"status":
+"ok"}`; fixed a real bug in the user's `frontend/.env.production` — missing the `/api/v1`
+suffix every other environment includes, which would have 404'd every API call in
+production — and flagged that the keep-alive workflow's `RENDER_APP_URL` repo variable and
+the backend's `CLIENT_URL` (CORS) still need manual setup; see §9. Also: added
+`backend/.env.production` — a real, ready-to-paste
+production environment file, gitignored explicitly since `.gitignore`'s bare `.env`
+pattern doesn't cover it; see §9. Also: added Render free-tier keep-alive prep: a new `GET /health`
 route — the one deliberate exception to the POST-only convention — plus a GitHub Actions
 workflow that pings it every 14 minutes once `RENDER_APP_URL` is set post-deploy; see §2 and
 §9. Also: migrated the real Company record — only the company, no parties/
@@ -1507,12 +1520,103 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     before touching the workflow file (not just eyeballing the YAML): a real local
     `/health` → `ALIVE`/exit 0; an intentionally unreachable port → `DOWN`/exit 1; empty
     `RENDER_APP_URL` → `SKIPPED`/exit 0.
+  - **Backend actually deployed, 2026-09-16, live at `https://maruti-services.onrender.com`.**
+    Confirmed via a real `curl` to `/health`: `HTTP 200`, body `{"status":"ok"}`. The
+    keep-alive workflow's one-time manual setup step (add repo variable `RENDER_APP_URL` =
+    this URL, no trailing slash) is **still not done** — `gh` CLI isn't available in this
+    dev sandbox to set it directly, so it needs to be added by hand via Settings → Secrets
+    and variables → Actions → Variables. Until then the workflow keeps logging `SKIPPED`
+    every 14 minutes rather than actually pinging, so the free-tier sleep problem this was
+    built to prevent is NOT yet actually prevented.
+  - **`frontend/.env.production`, created by the user this same day, had a real bug**: set
+    to `https://maruti-services.onrender.com` with no `/api/v1` suffix. Every other
+    environment (local `frontend/.env`: `http://localhost:5099/api/v1`) includes it, and
+    the backend mounts its whole router under `/api/v1` (`app.use('/api/v1', router)` in
+    `backend/index.js`) — without the suffix every API call from a production build would
+    404. Fixed to `https://maruti-services.onrender.com/api/v1`. Also gitignored correctly
+    (the user's edit already added `.env.production` to `frontend/.gitignore`, mirroring
+    what was just done for `backend/.env.production` above).
+  - **Render's own startup logs show two `"level":"error"` 404s for `HEAD /` and `GET /`
+    — this is expected, not a bug.** Render pings the root path as a generic "is anything
+    listening on this port" check at deploy time, separate from `render.yaml`'s
+    `healthCheckPath: /health` (which Render also checks, successfully). This app has no
+    `GET /` route by design (POST-only convention, only `/health` and `/api/v1/*` exist),
+    so `errorMiddleware` correctly 404s it — and this app's logger logs every 404 at
+    `error` level, which is what makes an expected, harmless response look alarming in the
+    Render log viewer. Don't mistake this for a real error when reading production logs.
+  - **Frontend deployed too, 2026-09-16, live at `https://marutiservices-rho.vercel.app`**
+    (Vercel). Confirmed via a real `curl` → `HTTP 200`.
+  - **Real bug found live: refreshing (or directly navigating to) any deep route —
+    `/invoices`, etc. — 404'd with Vercel's own "This page doesn't exist" page, not the
+    app.** Root cause: the app uses `BrowserRouter` (`frontend/src/App.jsx`), which needs
+    every path to be served `index.html` so React Router can take over client-side; without
+    a rewrite rule, Vercel's static host looks for a literal file/route at `/invoices`,
+    finds none, and 404s before React ever loads. Fixed by adding `frontend/vercel.json`:
+    ```json
+    { "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
+    ```
+    This is the standard SPA-on-Vercel fix. **Requires a commit + push to take effect** —
+    Vercel builds from git, so this file does nothing until it's deployed; not yet pushed
+    as of this note (see whether the user wants it pushed now).
+  - **`backend/.env.production`'s `CLIENT_URL` had a real bug when the user first filled it
+    in**: set to `https://marutiservices-rho.vercel.app/login` (with a path). `index.js`
+    does `cors({ origin: env.clientUrl, ... })`, an exact-match check against the browser's
+    `Origin` header, which never includes a path — so as written, every real request from
+    the deployed frontend would have been silently rejected by CORS. Fixed to
+    `https://marutiservices-rho.vercel.app` (origin only, no path, no trailing slash).
+  - **`"Refresh token missing."` 401s in the Render logs are expected, not a bug** —
+    verified live, not assumed. Logged in directly against the production API
+    (`POST /api/v1/auth/login`, real credentials) and confirmed `Set-Cookie: ...; HttpOnly;
+    Secure; SameSite=None` — exactly correct for the cross-site Vercel↔Render setup, meaning
+    `NODE_ENV=production` is genuinely active on Render (`env.isProduction` gates this in
+    `auth.controller.js`'s `setRefreshCookie`). The 401s themselves are
+    `frontend/src/api/axiosClient.js`'s response interceptor silently probing
+    `/auth/refresh` whenever any call gets a 401 (e.g. right after a page load, since the
+    access token lives only in memory) — a logged-out visitor correctly gets this 401, and
+    the interceptor already handles it gracefully (redirects to `/login`, suppresses the
+    raw toast — see its own comment). Logged at `error` level only because this app logs
+    every non-2xx response that way, same as the benign `Route not found: /` lines above.
+    Expect to keep seeing this in the logs for any visit without an active session; it is
+    not a sign of a request loop or misconfiguration.
+  - **Confirmed live, 2026-09-16: Render's actual `CLIENT_URL` had a trailing slash, and
+    that alone broke login with a real browser-visible CORS error** (`Login failed.` on the
+    live site; DevTools showed the `login` XHR as `CORS error` even though the preflight
+    `OPTIONS` returned `204`). Diagnosed by curling the live API directly with
+    `Origin: https://marutiservices-rho.vercel.app` and reading the response:
+    `access-control-allow-origin: https://marutiservices-rho.vercel.app/` — a trailing
+    slash the browser's actual Origin header never has. Root cause: `index.js`'s
+    `cors({ origin: env.clientUrl })` — when `origin` is a plain string, the `cors`
+    package sets `Access-Control-Allow-Origin` to that exact string verbatim without even
+    comparing it to the request's real Origin first, so the login call itself succeeded at
+    the HTTP level (`200 OK`, correct body) while the browser silently blocked the response
+    from reaching JS because the two strings weren't byte-for-byte identical. **This can
+    only be fixed in Render's dashboard** (backend service → Environment → `CLIENT_URL`) —
+    `render.yaml` marks it `sync: false`, meaning Render never reads it from this repo, so
+    editing `backend/.env.production` alone (already trailing-slash-free) does nothing on
+    its own. User still needs to update it there to `https://marutiservices-rho.vercel.app`
+    (no trailing slash, no path) and let Render redeploy.
   - This is genuinely necessary prep, not premature optimization — Render's sleep behavior
     is triggered by incoming *traffic*, not by anything the app can do internally (a
     `setInterval` inside the Node process wouldn't help; if Render has already stopped the
     process for being idle, nothing inside that stopped process can run to wake it back up
     — only an external request can). An external scheduled pinger is the standard, correct
     fix for this specific problem, not a workaround for a workaround.
+- **`backend/.env.production`, added 2026-09-16** — a real, ready-to-paste production
+  environment file, at the user's explicit request ("directly copy paste"). Distinct from
+  `backend/.env.example` (blank template, safe to commit): this one holds real values —
+  the Atlas `MONGO_URI` already backing the migrated Company/login (see the company-only
+  migration note above), and a freshly-generated `JWT_SECRET` deliberately different from
+  local dev's (so a leaked secret in one environment can't forge tokens in the other).
+  `CLIENT_URL` is deliberately left as an explicit `REPLACE_WITH_...` placeholder rather
+  than a guess — no frontend has been deployed yet, and a wrong guess would silently break
+  CORS once it is. **Gitignored explicitly**: `backend/.gitignore`'s bare `.env` pattern
+  does NOT also match `.env.production` (different filename), so `.env.production` was
+  added to `backend/.gitignore` as its own line before the file was written, and `git
+  status` was checked afterward to confirm it doesn't appear as untracked. If using the
+  Render Blueprint (`render.yaml`), most of these values are already hardcoded there or
+  auto-generated (`JWT_SECRET`) — this file matters most for `MONGO_URI`/`CLIENT_URL`
+  (both `sync: false` in `render.yaml`, i.e. Render expects them typed into its dashboard)
+  or for setting up the Web Service manually instead of via the Blueprint.
 - **Sandbox-specific gotcha: this dev environment blocks Node's raw DNS resolver.**
   `dns.resolve4()` / `dns.resolveSrv()` (the `c-ares`-based path Node's `dns.resolve*`
   family uses — raw UDP queries straight to a DNS server) fail with `ECONNREFUSED` for
