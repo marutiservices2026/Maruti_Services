@@ -4,12 +4,21 @@
 # workaround for that free-tier behavior; on a paid Render plan it's unnecessary but
 # harmless.
 #
+# Each run logs a timestamped, human-readable line either way — "ALIVE — HTTP 200 in
+# 0.31s — body: {...}" or "DOWN or UNREACHABLE — HTTP <code> in <time>s" — and a genuine
+# ping failure marks the run itself as failed (a real red X in the Actions tab, not just
+# text buried in a log that always shows green). GitHub emails failed-scheduled-workflow
+# notifications to the repo's default notification recipients, so this is also your actual
+# alerting for "the backend is down," not just record-keeping. One isolated failure right
+# after a cold start can be normal (Render still waking the service up); repeated failures
+# across runs are the real signal.
+#
 # Setup (one-time, after the backend is actually deployed to Render):
 #   Repo Settings -> Secrets and variables -> Actions -> Variables -> New repository
 #   variable, name RENDER_APP_URL, value the deployed backend's base URL with no
 #   trailing slash (e.g. https://gst-billing-backend.onrender.com). Until that variable
-#   is set, every run of this workflow just logs that and exits — it does not fail the
-#   workflow or send requests anywhere.
+#   is set, every run of this workflow just logs that and exits successfully — it does not
+#   fail the workflow or send requests anywhere.
 name: Keep Render backend awake
 
 on:
@@ -31,8 +40,27 @@ jobs:
         env:
           RENDER_APP_URL: ${{ vars.RENDER_APP_URL }}
         run: |
+          ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
           if [ -z "$RENDER_APP_URL" ]; then
-            echo "RENDER_APP_URL repository variable is not set yet — nothing to ping. See this file's header comment for setup."
+            echo "[$(ts)] SKIPPED — RENDER_APP_URL repository variable is not set yet. See this file's header comment for setup."
             exit 0
           fi
-          curl -sf --max-time 20 "$RENDER_APP_URL/health" && echo "OK" || echo "Ping failed (service may be cold-starting from a prior sleep, or genuinely down)"
+
+          # -o writes the body to a file (so it can be logged) while -w prints status code
+          # and elapsed time to stdout, joined with '|' so one curl call yields both without
+          # a second request. `|| RESULT="000|0"` covers curl itself failing outright (DNS
+          # failure, connection refused, timeout) rather than the server returning a bad
+          # status — %{http_code} would otherwise be empty in that case.
+          RESULT=$(curl -s --max-time 30 -o /tmp/health_body.json -w '%{http_code}|%{time_total}' "$RENDER_APP_URL/health") || RESULT="000|0"
+          HTTP_CODE="${RESULT%%|*}"
+          TIME_TOTAL="${RESULT##*|}"
+          BODY=$(cat /tmp/health_body.json 2>/dev/null || echo "(no body)")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "[$(ts)] ALIVE — HTTP $HTTP_CODE in ${TIME_TOTAL}s — body: $BODY"
+          else
+            echo "[$(ts)] DOWN or UNREACHABLE — HTTP ${HTTP_CODE:-000} in ${TIME_TOTAL}s"
+            echo "A single failure right after a cold start can be normal (Render waking the service back up); repeated failures across runs are the real signal something's wrong."
+            exit 1
+          fi

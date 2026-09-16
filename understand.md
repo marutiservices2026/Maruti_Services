@@ -1494,6 +1494,19 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     15-minute idle threshold," which this still guarantees; 14 rather than 15 was chosen
     specifically to leave margin for GitHub's own scheduler occasionally running a few
     minutes late under load.
+  - **Logging, tightened up same day after the user asked whether it actually reports
+    up/down clearly** — the first version just echoed a bare "OK" or a generic failure
+    string, and *always* exited `0`, so a genuinely broken backend would still show as a
+    green checkmark in the Actions tab forever. Now every run logs a timestamped line —
+    `[2026-09-16T08:36:04Z] ALIVE — HTTP 200 in 0.10s — body: {"status":"ok"}` or `[...]
+    DOWN or UNREACHABLE — HTTP <code> in <time>s` — and a genuine failure (bad status,
+    timeout, DNS failure, connection refused — `curl`'s own outright failure is mapped to
+    `HTTP 000` rather than left blank) makes the workflow step exit `1`, so the run itself
+    shows red, and GitHub's own failed-scheduled-workflow email notification becomes real
+    alerting, not just a log nobody reads. Verified the three paths directly with `bash`
+    before touching the workflow file (not just eyeballing the YAML): a real local
+    `/health` → `ALIVE`/exit 0; an intentionally unreachable port → `DOWN`/exit 1; empty
+    `RENDER_APP_URL` → `SKIPPED`/exit 0.
   - This is genuinely necessary prep, not premature optimization — Render's sleep behavior
     is triggered by incoming *traffic*, not by anything the app can do internally (a
     `setInterval` inside the Node process wouldn't help; if Render has already stopped the
