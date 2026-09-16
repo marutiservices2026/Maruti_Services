@@ -12,7 +12,11 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (this project became a git repository — `git init` + root commit
+Last updated: 2026-09-16 (fixed a Company-not-found/infinite-loading bug caused by editing
+`.env` without restarting the backend — the running server kept using its old in-memory
+Atlas connection after `.env` was switched back to local; general gotcha, not just a
+MongoDB one — see §9. Also: pushed this repo to GitHub (`marutiservices2026/Maruti_Services`).
+On top of the same day's earlier: this project became a git repository — `git init` + root commit
 `cedfbc5` on `master`, 135 files, committed locally but not yet pushed anywhere; a few stray
 dev artifacts predating git were cleaned up first. See §9. On top of the same day's earlier:
 `MONGO_URI` switched from local standalone MongoDB to a real
@@ -1342,27 +1346,40 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     `.env` and the frontend's `VITE_API_BASE_URL` both point at 5099).
   - Frontend: `cd frontend && npm run dev` (Vite), port **5173**.
     `frontend/.env`: `VITE_API_BASE_URL=http://localhost:5099/api/v1`.
-- **MongoDB — switched from local to a real Atlas cluster on 2026-09-16, at the user's
-  request** (see the dated note further down for the full story). `MONGO_URI` in `.env` now
-  points at a live MongoDB Atlas cluster (`marutiservices.e8uwix9.mongodb.net`, described by
-  the user as their "product"/production database), not the local standalone `mongod` this
-  file describes below — check `.env` itself for which is actually active before assuming
-  either. The local option is commented out, not deleted, so it's still one line-swap away:
-  - **Local (commented out in `.env`):** standalone `mongod` on the default port `27017`,
-    database name `gst_billing_demo`. NOT a replica set — see convention #7 for the
-    transaction implication (this matters again if you switch back: transactions, used in
-    `/auth/register` and invoice creation, silently need a replica set). The demo data (1
-    company "Patel Flexible" — despite the app's branding elsewhere saying "Maruti
-    Packaging," this was the seed data's company name — 1 admin user "Ramesh Patel", seeded
-    parties/products/invoices) lives only here, not on Atlas.
-  - **Atlas (active):** database name `gst_billing`, no `_demo` suffix (dropped deliberately
-    — this one's meant to be real). **Completely empty as of the switch** — every candidate
-    database name on the cluster had 0 collections when checked, so there's no data to lose
-    and no demo login to fall back on; MongoDB creates the database on first write, same as
-    any fresh install. **The demo login (`demo@patelflexible.com` / `password123`) does NOT
-    exist on this database** — register a real account via the app's own `/auth/register`
-    flow (the Login page's "Create your business account" link) before doing anything else.
-    IS a proper Atlas replica set, so transactions work fine here (unlike local).
+- **MongoDB — switched to Atlas, then reverted back to local, both on 2026-09-16.** `.env`'s
+  `MONGO_URI` was pointed at a live Atlas cluster earlier the same day (at the user's
+  request — see the dated note further down for that story), then the user edited `.env`
+  directly (via their IDE) to switch it back to the local standalone `mongod`, commenting
+  the Atlas lines out again. **As of the most recent check, local is what's active** — but
+  this has flipped twice in one day, so treat `.env` itself as the only source of truth for
+  which one is live right now, not this note.
+  - **Local (currently active):** standalone `mongod` on the default port `27017`, database
+    name `gst_billing_demo`. NOT a replica set — see convention #7 for the transaction
+    implication (matters if this ever switches to Atlas again: transactions, used in
+    `/auth/register` and invoice creation, silently need a replica set and fail without
+    one). Verified live 2026-09-16: real company "Maruti Packaging" (GSTIN
+    `24ACIFM5675P1ZG`, real bank details filled in via Company Profile at some point — this
+    is NOT placeholder seed data), user "Ramesh Patel" (`demo@patelflexible.com`), 4
+    products, 10 parties, 15 invoices, 3 masters, 1 e-way bill. This is the real working
+    data — don't casually wipe or migrate away from it without the user's say-so.
+  - **Atlas (currently inactive, commented out):** `marutiservices.e8uwix9.mongodb.net`,
+    database `gst_billing`. Was completely empty as of 2026-09-16 (see the dated note) and
+    nothing has been checked to have changed that since — no demo login exists there, and
+    nobody has registered a real account on it yet. Is a proper Atlas replica set, so
+    transactions work fine there (unlike local) if it's ever switched back to.
+  - **Gotcha that actually bit this exact scenario: editing `.env` does NOT affect an
+    already-running Node process.** `dotenv` reads the file once, at process startup;
+    changing `.env` afterward has zero effect until the process is killed and restarted.
+    The user switched `.env` back to local, but the backend that was still running (started
+    hours earlier, when `.env` said Atlas) kept using its original in-memory Atlas
+    connection — so the browser showed a normal-looking logged-in UI (a still-valid cached
+    JWT from an old local session) while every real data lookup 404'd, because the *running
+    server* was actually still talking to the empty Atlas database the whole time, not the
+    local one `.env` currently named. Fixed by killing that process and restarting
+    `node index.js` so it picked up the current `.env`. **Any time `.env` is edited —
+    by anyone, IDE or otherwise — the backend needs an explicit restart before the change
+    does anything**; nothing about the app itself will indicate this mismatch except
+    confusing/inconsistent-looking failures exactly like this one.
 - **Sandbox-specific gotcha: this dev environment blocks Node's raw DNS resolver.**
   `dns.resolve4()` / `dns.resolveSrv()` (the `c-ares`-based path Node's `dns.resolve*`
   family uses — raw UDP queries straight to a DNS server) fail with `ECONNREFUSED` for
@@ -1400,11 +1417,10 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
   committing that no `.env` or other secret ever got staged (`git status --short | grep
   -iE '\.env$|\.pem$|\.key$'` came back empty) — both `.gitignore`s already had `.env`, so
   this was a sanity check, not a fix.
-  **Push status:** the user said they'd provide a git remote URL to push to as a
-  collaborator, but the actual URL didn't come through in that message — so as of this
-  commit, the repo exists and is committed **locally only**, not yet pushed anywhere. If
-  you're reading this and a push hasn't happened yet, that's the next step once the user
-  provides the actual URL — don't guess a repo URL. Before that there was no git history at
+  **Push status:** pushed. The user provided the remote in a follow-up message —
+  `https://github.com/marutiservices2026/Maruti_Services.git` — added as `origin`, and both
+  commits are live on branch `master` there (confirmed via `git status`: "up to date with
+  'origin/master'", clean working tree). Before that there was no git history at
   all, which is why this file and the code's own comments were built up as the record of
   "what changed and why" instead — that history predates git and isn't recoverable from
   `git log`; this file remains the authoritative record for anything before 2026-09-16, and
@@ -1416,9 +1432,10 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
 - **No CI/CD wired up, and no actual Render/Vercel deploy has happened yet.** Deployment
   config files exist (`backend/render.yaml`, `backend/Dockerfile`, `backend/.dockerignore`)
   targeting Render for the backend — but the app has never actually been deployed there or
-  to Vercel. **This is no longer true for Atlas specifically** — as of 2026-09-16, `.env`'s
-  active `MONGO_URI` is a real production MongoDB Atlas cluster with real credentials (see
-  the dated note above) — Atlas is genuinely in use now, just Render/Vercel aren't yet.
+  to Vercel. A real MongoDB Atlas cluster with real credentials does exist and is reachable
+  (see the dated note above) — but as of the most recent check, `.env` is pointed at local
+  MongoDB again, not Atlas, so don't assume Atlas is the active connection without checking
+  `.env` yourself first.
 
 ---
 
@@ -1455,11 +1472,12 @@ user-management endpoint to create an accountant-role account otherwise.
 
 ## 11. Known, accepted local-only limitations (do not "fix" these without being asked)
 
-- ~~MongoDB transactions fail locally (standalone mongod, not a replica set)~~ — only true
-  when `MONGO_URI` points at the local standalone `mongod` option in `.env` (commented out
-  as of 2026-09-16). The *active* connection is now the Atlas cluster (§9), which is a real
-  replica set, so transactions work in local dev too right now. This limitation comes back
-  if `MONGO_URI` is ever switched back to the local option — see convention #7.
+- **MongoDB transactions fail locally (standalone mongod, not a replica set) — back in
+  effect as of 2026-09-16's second `MONGO_URI` switch.** This briefly stopped being true
+  for a few hours the same day while `MONGO_URI` pointed at Atlas (a real replica set), but
+  the user switched it back to local before this file was last edited — check `.env` for
+  which is actually active (§9 has the full back-and-forth) rather than trusting this line.
+  Works fine again the moment `MONGO_URI` points at Atlas — see convention #7.
 - ~~No git repository, so no commit history / blame to consult~~ — no longer true as of
   2026-09-16, see §9's dated note.
 - No automated test suite — verification is manual/live (section 10).
