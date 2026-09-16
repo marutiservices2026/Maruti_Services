@@ -12,7 +12,11 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (Supplier's Ref. on the classic invoice template now
+Last updated: 2026-09-16 (found a real production bug live — "Download PDF" 500s on every
+invoice, because Puppeteer's bundled Chromium can't launch on Render's default Node
+runtime; fixed by switching `render.yaml` to `runtime: docker`, which the prepared
+`Dockerfile` already supports — still needs a commit+push and possibly a manual Render
+dashboard step to actually take effect on the live service; see §9. Also: Supplier's Ref. on the classic invoice template now
 auto-defaults to the invoice's own sequence number, no leading zeros — `GST-0001` -> `"1"`
 — unless the user types their own value; see §5. Also: frontend now also deployed and live, at
 `https://marutiservices-rho.vercel.app`; fixed a real CORS bug in `backend/.env.production`'s
@@ -1586,6 +1590,26 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     This is the standard SPA-on-Vercel fix. **Requires a commit + push to take effect** —
     Vercel builds from git, so this file does nothing until it's deployed; not yet pushed
     as of this note (see whether the user wants it pushed now).
+  - **Real production bug found live, 2026-09-16: "Download PDF" 500s on every invoice.**
+    Reproduced directly via DevTools on the real deployed app (finalized `GST-0001` for
+    Green Enterprise, then clicked Download PDF): `POST /invoices/pdf` → `500`, body
+    `{"success": false, "message": "Something went wrong..."}`. Root cause: exactly the
+    failure `render.yaml`'s own header comment already warned about — Puppeteer's bundled
+    Chromium (`pdf.service.js`'s `getBrowser()`, plain `puppeteer.launch({...
+    '--no-sandbox' })`) can't launch on Render's default Node runtime, which is missing
+    system libraries Chromium needs (`libnss3`, `libgbm1`, etc.). Fixed by switching
+    `render.yaml`'s `runtime: node` to `runtime: docker` — `backend/Dockerfile` (already
+    present, prepared for exactly this) installs the full Chromium dependency list and
+    replaces `buildCommand`/`startCommand` with its own `RUN npm install` / `CMD ["node",
+    "index.js"]`. Confirmed `puppeteer` is a real `dependencies` entry (not
+    `devDependencies` — the Dockerfile's `npm install --omit=dev` would otherwise have
+    skipped it). **Still needs to actually reach Render**: this only exists in the repo so
+    far — needs a commit + push, and depending on whether Render's Blueprint auto-sync can
+    switch an *existing* service's runtime in place, may also need the user to check
+    Render's dashboard (Settings → Environment) or, if that option isn't offered for an
+    existing service, delete and recreate the web service from the Blueprint so it picks up
+    `runtime: docker` on creation. Not yet verified end-to-end post-fix — re-test "Download
+    PDF" once redeployed.
   - **`backend/.env.production`'s `CLIENT_URL` had a real bug when the user first filled it
     in**: set to `https://marutiservices-rho.vercel.app/login` (with a path). `index.js`
     does `cors({ origin: env.clientUrl, ... })`, an exact-match check against the browser's

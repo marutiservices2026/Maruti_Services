@@ -1,14 +1,15 @@
 # render.yaml — Render Blueprint for the backend web service (Section 12).
-# If Puppeteer fails to launch Chromium on Render's default Node runtime (missing
-# system libraries — a known issue this spec flags explicitly), switch `runtime` below
-# to `docker` — the Dockerfile in this same folder installs everything Chromium needs.
+# `runtime: docker` (switched 2026-09-16) — PDF generation hit exactly the failure this
+# file used to warn about: Puppeteer's bundled Chromium couldn't launch on Render's default
+# Node runtime (missing system libraries), 500ing every `/invoices/pdf` call in production.
+# The Dockerfile in this same folder installs everything Chromium needs; Render builds from
+# it automatically once `runtime` is `docker` — no buildCommand/startCommand here anymore,
+# the Dockerfile's own RUN npm install / CMD ["node", "index.js"] replace them.
 services:
   - type: web
     name: gst-billing-backend
-    runtime: node
+    runtime: docker
     plan: free
-    buildCommand: npm install
-    startCommand: node index.js
     # GET /health (index.js — the one deliberate exception to this API's POST-only
     # convention) — Render pings this to decide whether the service is up. Separate from,
     # but complementary to, the .github/workflows/keep-alive.yml scheduled ping that exists
