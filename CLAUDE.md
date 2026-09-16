@@ -38,6 +38,8 @@ section following the existing structure and note the date. Full protocol is in
   bundled default logo now; there is no signature image on invoices at all. Don't
   reintroduce either (or Cloudinary, which the upload feature briefly used before being
   removed outright) without being explicitly asked. See `understand.md` §6.
-- This is not a git repository, and there's no automated test suite — verification is done
-  live via the `browser-automation` skill against the running dev servers. See
-  `understand.md` §10.
+- **This became a git repository on 2026-09-16** (root commit `cedfbc5`, branch `master`) —
+  before that there was no git history at all, and older notes in `understand.md` referring
+  to "no git repository" describe that earlier state, not the current one. There's still no
+  automated test suite — verification is done live via the `browser-automation` skill
+  against the running dev servers. See `understand.md` §10.

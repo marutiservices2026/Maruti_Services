@@ -12,7 +12,10 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (`MONGO_URI` switched from local standalone MongoDB to a real
+Last updated: 2026-09-16 (this project became a git repository — `git init` + root commit
+`cedfbc5` on `master`, 135 files, committed locally but not yet pushed anywhere; a few stray
+dev artifacts predating git were cleaned up first. See §9. On top of the same day's earlier:
+`MONGO_URI` switched from local standalone MongoDB to a real
 Atlas cluster at the user's request — database now `gst_billing` and currently empty, no
 demo login works on it; also documented a sandbox-specific gotcha where Node's raw DNS
 resolver is blocked, breaking `mongodb+srv://` — see §9.)
@@ -1384,17 +1387,38 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
   `MONGO_URI`/`JWT_SECRET`). **Keep a copy of a working `.env` somewhere safe outside the
   repo.** (JWT_SECRET can be regenerated freely — it only invalidates currently logged-in
   sessions, not any stored data.)
-- **This project is not a git repository** (confirmed via environment check) — there is no
-  git history to consult for "what changed and why"; this file and the code's own comments
-  are the record.
+- ~~This project is not a git repository~~ — **became one on 2026-09-16**, at the user's
+  request, specifically to unblock a Render deploy (Render needs a git remote to build
+  from). `git init` at the project root (the repo covers both `backend/` and `frontend/` in
+  one tree — Render's own "root directory" per-service setting is how a single repo still
+  deploys the backend and frontend as separate services). Root commit `cedfbc5` on branch
+  `master`, 135 files. Before committing, cleaned up a few stray dev artifacts that predated
+  git and weren't caught by the existing `.gitignore`s: `backend/demo.pid`,
+  `backend/test-classic-v2.pdf` (leftover from an earlier PDF-layout debugging session —
+  see §8), `frontend/dev.pid` — all deleted; `*.log`/`*.pid` added to both `.gitignore`s so
+  future dev-server log/pid files don't need the same manual cleanup. Verified before
+  committing that no `.env` or other secret ever got staged (`git status --short | grep
+  -iE '\.env$|\.pem$|\.key$'` came back empty) — both `.gitignore`s already had `.env`, so
+  this was a sanity check, not a fix.
+  **Push status:** the user said they'd provide a git remote URL to push to as a
+  collaborator, but the actual URL didn't come through in that message — so as of this
+  commit, the repo exists and is committed **locally only**, not yet pushed anywhere. If
+  you're reading this and a push hasn't happened yet, that's the next step once the user
+  provides the actual URL — don't guess a repo URL. Before that there was no git history at
+  all, which is why this file and the code's own comments were built up as the record of
+  "what changed and why" instead — that history predates git and isn't recoverable from
+  `git log`; this file remains the authoritative record for anything before 2026-09-16, and
+  normal commit history takes over from there for anything after.
 - ~~Cloudinary is not configured locally~~ — **no longer applicable, Cloudinary was removed
   entirely 2026-09-15.** Logo/signature upload now stores a base64 data: URI directly on the
   Company document — no external account, no env vars, works identically in every
   environment. See the dated removal note further down for why.
-- **No CI/CD wired up.** Deployment config files exist (`backend/render.yaml`,
-  `backend/Dockerfile`, `backend/.dockerignore`) targeting Render (backend) — but actual
-  deployment to Render/Vercel/Atlas has never been performed; there are no real production
-  credentials anywhere in this environment.
+- **No CI/CD wired up, and no actual Render/Vercel deploy has happened yet.** Deployment
+  config files exist (`backend/render.yaml`, `backend/Dockerfile`, `backend/.dockerignore`)
+  targeting Render for the backend — but the app has never actually been deployed there or
+  to Vercel. **This is no longer true for Atlas specifically** — as of 2026-09-16, `.env`'s
+  active `MONGO_URI` is a real production MongoDB Atlas cluster with real credentials (see
+  the dated note above) — Atlas is genuinely in use now, just Render/Vercel aren't yet.
 
 ---
 
@@ -1431,9 +1455,13 @@ user-management endpoint to create an accountant-role account otherwise.
 
 ## 11. Known, accepted local-only limitations (do not "fix" these without being asked)
 
-- MongoDB transactions fail locally (standalone mongod, not a replica set) — works fine on
-  Atlas in production. See convention #7.
-- No git repository, so no commit history / blame to consult.
+- ~~MongoDB transactions fail locally (standalone mongod, not a replica set)~~ — only true
+  when `MONGO_URI` points at the local standalone `mongod` option in `.env` (commented out
+  as of 2026-09-16). The *active* connection is now the Atlas cluster (§9), which is a real
+  replica set, so transactions work in local dev too right now. This limitation comes back
+  if `MONGO_URI` is ever switched back to the local option — see convention #7.
+- ~~No git repository, so no commit history / blame to consult~~ — no longer true as of
+  2026-09-16, see §9's dated note.
 - No automated test suite — verification is manual/live (section 10).
 - Deployment configs exist but have never actually been deployed anywhere.
 
