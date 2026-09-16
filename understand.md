@@ -12,7 +12,11 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (found and fixed a genuine duplicate API call on Dashboard mount —
+Last updated: 2026-09-16 (migrated the real Company record — only the company, no parties/
+products/invoices — from local to Atlas, and created a real production login directly in
+the database since the app has no "add a user to an existing company" flow; verified live
+via a temporary second backend instance, not just a raw DB read. See §9. Also: found and
+fixed a genuine duplicate API call on Dashboard mount —
 `gst-summary` was fetched twice with identical params; StrictMode's expected dev-only
 double-invoke was masking/amplifying it, which is what made it visible in DevTools — see §6.
 Also: fixed a Company-not-found/infinite-loading bug caused by editing
@@ -1406,8 +1410,11 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
   - **Atlas (currently inactive, commented out):** `marutiservices.e8uwix9.mongodb.net`,
     database `gst_billing`. Was completely empty as of 2026-09-16 (see the dated note) and
     nothing has been checked to have changed that since — no demo login exists there, and
-    nobody has registered a real account on it yet. Is a proper Atlas replica set, so
-    transactions work fine there (unlike local) if it's ever switched back to.
+    **No longer fully empty as of 2026-09-16** — see the dated note further down: the real
+    Company document (and only that — no parties/products/invoices/masters) was migrated
+    over from local, plus a real admin login created directly in the database. Is a proper
+    Atlas replica set, so transactions work fine there (unlike local) if it's ever switched
+    back to.
   - **Gotcha that actually bit this exact scenario: editing `.env` does NOT affect an
     already-running Node process.** `dotenv` reads the file once, at process startup;
     changing `.env` afterward has zero effect until the process is killed and restarted.
@@ -1421,6 +1428,38 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     by anyone, IDE or otherwise — the backend needs an explicit restart before the change
     does anything**; nothing about the app itself will indicate this mismatch except
     confusing/inconsistent-looking failures exactly like this one.
+- **Company (and only the company) migrated from local to Atlas, plus a real production
+  login, both 2026-09-16.** The user explicitly wanted *just* the company record on
+  production — no parties, products, invoices, masters, or e-way bills carried over (local
+  has a mix of real records and accumulated QA-test artifacts from this week's testing;
+  copying everything would have brought that test data into production too). Done as two
+  direct MongoDB writes (throwaway scripts, deleted after running — not part of the
+  codebase):
+  1. Read the local `companies` document, stripped `_id`/timestamps, inserted as a fresh
+     document into Atlas `gst_billing` (new `_id` `6aaa4ffe7a2da7c81b18a485` — nothing else
+     in Atlas referenced the old local `_id`, so there was no reason to preserve it).
+  2. Created a `users` document directly in Atlas, linked via `company` to that new
+     document — `role: 'admin'`, password hashed with `bcrypt` at cost `12` (matching
+     `auth.controller.js`'s own `BCRYPT_COST` exactly, so it behaves identically to a real
+     `/auth/register` hash). **This was necessary, not optional** — the app has no "add a
+     user to an existing company" flow, only `/auth/register`, which always creates a new
+     company *and* user together as a pair; using that flow would have created a second,
+     duplicate company rather than attaching a login to the one just inserted.
+  - The company's local record still carried a leftover `purchaseTemplate` field from
+    before Purchases was removed (2026-09-14) — dead, unused by any current code, not in
+    the `Company` schema, but MongoDB doesn't enforce schema on fields already present in a
+    raw document. Copied along as-is rather than silently dropped; harmless, but worth
+    knowing it's there if anyone goes looking for why an "unknown" field exists on the
+    Atlas company document.
+  - **Verified live, through the real app, not just a database read**: spun up a *second*,
+    temporary backend instance on port 5100 (env override, not touching the main dev
+    server's `.env` or its already-running process on 5099) pointed at Atlas, logged in for
+    real via `POST /auth/login` with the new credentials, got a valid access token, and
+    confirmed `POST /companies/detail` returns the correct company data through that token.
+    Killed the temporary instance afterward and confirmed the main local dev server (still
+    serving local `gst_billing_demo`, untouched throughout) still logs in fine too.
+  - Real credentials for this login are not written here — check with the user directly if
+    you need them; this file is broadly readable context, not a secrets store.
 - **Sandbox-specific gotcha: this dev environment blocks Node's raw DNS resolver.**
   `dns.resolve4()` / `dns.resolveSrv()` (the `c-ares`-based path Node's `dns.resolve*`
   family uses — raw UDP queries straight to a DNS server) fail with `ECONNREFUSED` for
