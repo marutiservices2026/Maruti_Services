@@ -12,7 +12,9 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (frontend now also deployed and live, at
+Last updated: 2026-09-16 (Supplier's Ref. on the classic invoice template now
+auto-defaults to the invoice's own sequence number, no leading zeros — `GST-0001` -> `"1"`
+— unless the user types their own value; see §5. Also: frontend now also deployed and live, at
 `https://marutiservices-rho.vercel.app`; fixed a real CORS bug in `backend/.env.production`'s
 `CLIENT_URL` — had a `/login` path on it, which the exact-match `cors({origin: ...})` check
 in `index.js` would never match since the browser's Origin header never includes a path;
@@ -319,6 +321,24 @@ per login). All schemas use `{ timestamps: true, strict: true }`.
   error (code `11000`) — two concurrent requests can both attempt to insert the same
   brand-new Counter document for a company's first invoice of a new FY; the retry lets the
   second one fall through to a normal `$inc` update instead of crashing.
+  - **`supplierRef` auto-default, added 2026-09-16** (`invoice.controller.js`'s `create`):
+    defaults the classic template's "Supplier's Ref." field (same table column as "Invoice
+    No.", one row down — `templates/invoice/classic.template.html:124`) to the invoice's own
+    sequence number with no leading zeros, e.g. `GST-0001` → `"1"`, `GST-0025` → `"25"` —
+    the user's explicit choice among three options (the alternatives were the last-2-digits
+    reading of `"01"` and the full zero-padded `"0001"`). Implementation: `getNextDocument
+    Number` already returned `seq` (the raw counter integer) alongside the zero-padded
+    `documentNo` string, so this is just `supplierRef: req.body.supplierRef || String(seq)`
+    — only a default, an explicitly typed Supplier's Ref (the "More Fields" input in
+    `InvoiceForm.jsx`) still wins, since real invoices sometimes do need a genuinely
+    different reference there. **Verified the string-derivation logic in isolation**
+    (`String(1) -> "1"`, `String(25) -> "25"`, etc. — matches the agreed rule exactly); did
+    **not** verify end-to-end through a real invoice creation, since that requires either a
+    local login this session doesn't have credentials for, or calling the counter service
+    directly against the real local data (`gst_billing_demo`, real invoices already in the
+    teens) — which would burn a real sequence number and leave a permanent gap. Next
+    session/user should confirm this once by creating one real invoice and checking the
+    printed PDF's Supplier's Ref. against its Invoice No.
 - **numberToWords.service.js** — Indian Lakh/Crore amount-in-words (see convention #11).
 - ~~**dynamicField.service.js**~~ — **removed 2026-09-15** — used to validate/merge
   `customFields` against a company's active `FieldConfig` entries; deleted along with the
@@ -624,6 +644,14 @@ browser-automation skill:
   actually in the DOM, the next `reset()` call sticks. Same species of bug as the PDF
   full-page-fill saga in §8: a value that looks right in isolation can still lose to render
   timing — verify the actual post-render state, not just that the code that sets it ran.
+- **New Product form: GST Rate dropdown silently empty, no explanation** — not a bug in the
+  data flow (added 2026-09-16). GST Rate is sourced from the same masters system as Unit
+  (`masterApi.listMasters({ type: 'taxRate' })`), and is empty for the identical reason Unit
+  can be: no `taxRate` master entries exist yet (Settings → Manage Masters → Type: `taxRate`
+  — add entries like Code `GST18`/Label `18%`/Value `18`). The only real bug was that
+  `ProductForm.jsx`'s empty-state hint only checked `units.length === 0`, so an empty Unit
+  list explained itself while an empty GST Rate list didn't. Fixed by adding the equivalent
+  `taxRates.length === 0` hint alongside it.
 - **Two forms fail silently on a missing required field — no toast, no request, nothing
   visible** (`EwayBillTracker.jsx`'s manual entry form, `CompanyProfile.jsx`). Both used a
   plain HTML `required` attribute on the `Input` component. Native constraint validation

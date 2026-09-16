@@ -134,7 +134,7 @@ export const create = asyncHandler(async (req, res) => {
   );
 
   const invoice = await methods.withTransaction(async (session) => {
-    const { documentNo, financialYear } = await getNextDocumentNumber(
+    const { documentNo, financialYear, seq } = await getNextDocumentNumber(
       req.user.company,
       'invoice',
       req.body.invoiceDate,
@@ -153,7 +153,12 @@ export const create = asyncHandler(async (req, res) => {
         copyType: req.body.copyType,
         deliveryNote: req.body.deliveryNote,
         modeOfPayment: req.body.modeOfPayment,
-        supplierRef: req.body.supplierRef,
+        // Defaults to the invoice number's own sequence, no leading zeros
+        // (GST-0001 -> "1", GST-0025 -> "25") — the user's explicit request. Only a
+        // default: an explicitly typed Supplier's Ref (the "More Fields" input in
+        // InvoiceForm.jsx) still wins, since it's a real, separately-meaningful field on
+        // the classic template, not purely derived data.
+        supplierRef: req.body.supplierRef || String(seq),
         otherReferences: req.body.otherReferences,
         buyersOrderNo: req.body.buyersOrderNo,
         buyersOrderDate: req.body.buyersOrderDate,

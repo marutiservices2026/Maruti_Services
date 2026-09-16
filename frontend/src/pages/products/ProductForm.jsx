@@ -168,6 +168,12 @@ export default function ProductForm({ onCancel, onSuccess }) {
           No units defined yet — add one in Settings → Manage Masters before creating a product.
         </p>
       )}
+      {taxRates.length === 0 && (
+        <p className="small muted">
+          No GST rates defined yet — add one in Settings → Manage Masters (type: GST Rate) before
+          creating a product.
+        </p>
+      )}
 
       <div className="row" style={{ marginTop: 20 }}>
         <Button type="submit" disabled={isSubmitting}>
