@@ -1593,11 +1593,18 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
   - **Real production bug found live, 2026-09-16: "Download PDF" 500s on every invoice.**
     Reproduced directly via DevTools on the real deployed app (finalized `GST-0001` for
     Green Enterprise, then clicked Download PDF): `POST /invoices/pdf` → `500`, body
-    `{"success": false, "message": "Something went wrong..."}`. Root cause: exactly the
-    failure `render.yaml`'s own header comment already warned about — Puppeteer's bundled
-    Chromium (`pdf.service.js`'s `getBrowser()`, plain `puppeteer.launch({...
-    '--no-sandbox' })`) can't launch on Render's default Node runtime, which is missing
-    system libraries Chromium needs (`libnss3`, `libgbm1`, etc.). Fixed by switching
+    `{"success": false, "message": "Something went wrong..."}`. Render's own server log
+    (confirmed by the user, same incident) gave the precise error: `Could not find Chrome
+    (ver. 127.0.6533.88)... your cache path is incorrectly configured (which is:
+    /opt/render/.cache/puppeteer)`. Root cause, more precise than initially guessed: this
+    isn't (only) a missing-system-library crash — for Render's native Node runtime, the
+    build step and the running container can be separate environments, so the Chrome
+    binary Puppeteer's `npm install` downloads into its cache during build doesn't
+    necessarily survive into the container that actually serves requests. `runtime: docker`
+    fixes both problems at once: the build (`RUN npm install`, which downloads Chrome) and
+    the runtime share the exact same image layer, guaranteeing the binary persists, and the
+    Dockerfile's installed system libraries (`libnss3`, `libgbm1`, etc.) cover the second,
+    originally-assumed failure mode too. Fixed by switching
     `render.yaml`'s `runtime: node` to `runtime: docker` — `backend/Dockerfile` (already
     present, prepared for exactly this) installs the full Chromium dependency list and
     replaces `buildCommand`/`startCommand` with its own `RUN npm install` / `CMD ["node",
