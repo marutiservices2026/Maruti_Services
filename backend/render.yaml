@@ -1,0 +1,28 @@
+# render.yaml — Render Blueprint for the backend web service (Section 12).
+# If Puppeteer fails to launch Chromium on Render's default Node runtime (missing
+# system libraries — a known issue this spec flags explicitly), switch `runtime` below
+# to `docker` — the Dockerfile in this same folder installs everything Chromium needs.
+services:
+  - type: web
+    name: gst-billing-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1h
+      - key: CLIENT_URL
+        sync: false
+      - key: EWAYBILL_THRESHOLD
+        value: 50000
+      - key: LOG_LEVEL
+        value: info

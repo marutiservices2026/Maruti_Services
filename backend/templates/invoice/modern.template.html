@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>{{invoiceNo}}</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #1a1a1a; margin: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .num { text-align: right; }
+  .small { font-size: 8.5px; color: #555; }
+  .bold { font-weight: bold; }
+  .muted { color: #777; }
+
+  /* Top band — simple letterhead, no box */
+  .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a1a; padding-bottom: 8px; margin-bottom: 8px; }
+  .letterhead .company-name { font-size: 16px; font-weight: bold; }
+  .letterhead .doc-title { font-size: 18px; font-weight: bold; text-align: right; }
+  img.logo { max-height: 36px; margin-bottom: 4px; }
+
+  /* Header fields — single-rule, no grid box */
+  .meta-row { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 4px 0; }
+  .meta-row .label { color: #777; }
+  .party-block { width: 48%; display: inline-block; vertical-align: top; padding: 8px 0; }
+
+  /* Items table — single horizontal rules only */
+  .items-table { margin-top: 10px; }
+  .items-table th { border-bottom: 2px solid #1a1a1a; padding: 5px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.03em; color: #555; }
+  .items-table td { border-bottom: 1px solid #e5e5e5; padding: 5px; }
+  .items-table .total-row td { border-top: 2px solid #1a1a1a; border-bottom: none; font-weight: bold; }
+
+  .summary-table { margin-top: 8px; }
+  .summary-table td { padding: 3px 5px; border: none; }
+
+  .hsn-table { margin-top: 8px; }
+  .hsn-table th { border-bottom: 1px solid #1a1a1a; padding: 4px; text-align: center; font-size: 8.5px; }
+  .hsn-table td { border-bottom: 1px solid #eee; padding: 4px; text-align: center; }
+
+  .footer-block { margin-top: 12px; display: flex; justify-content: space-between; }
+  .signature-box { text-align: right; }
+  .footer-note { text-align: center; font-size: 8px; color: #999; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+  <div class="letterhead">
+    <div>
+      <img class="logo" src="{{logoUrl}}" /><br/>
+      <div class="company-name">{{seller.name}}</div>
+      <div class="small">{{seller.address}}</div>
+      <div class="small">GSTIN: {{seller.gstin}} &nbsp;|&nbsp; {{seller.stateName}} ({{seller.stateCode}})</div>
+    </div>
+    <div>
+      <div class="doc-title">{{documentTitle}}</div>
+      <div class="small right">{{copyType}}</div>
+      <div class="small right">No. <span class="bold">{{invoiceNo}}</span> &nbsp; Dated {{formatDate invoiceDate}}</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="party-block">
+      <div class="bold">Buyer</div>
+      <div>{{buyer.name}}</div>
+      <div class="small">{{buyer.address}}</div>
+      <div class="small">GSTIN: {{buyer.gstin}} &nbsp;|&nbsp; {{buyer.stateName}} ({{buyer.stateCode}})</div>
+    </div>
+    <div class="party-block" style="text-align:right">
+      <div class="meta-row"><span class="label">Delivery Note</span><span>{{deliveryNote}}</span></div>
+      <div class="meta-row"><span class="label">Mode/Terms of Payment</span><span>{{modeOfPayment}}</span></div>
+      {{#if buyersOrderNo}}
+      <div class="meta-row"><span class="label">Buyer's Order No.</span><span>{{buyersOrderNo}} ({{formatDate buyersOrderDate}})</span></div>
+      {{/if}}
+      <div class="meta-row"><span class="label">Despatched Through</span><span>{{despatchedThrough}}</span></div>
+      <div class="meta-row"><span class="label">Destination</span><span>{{destination}}</span></div>
+    </div>
+  </div>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width:4%">#</th>
+        <th>Description</th>
+        <th style="width:10%">HSN/SAC</th>
+        <th style="width:12%" class="right">Qty</th>
+        <th style="width:10%" class="right">Rate</th>
+        <th style="width:14%" class="right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td class="center">{{inc @index}}</td>
+        <td>{{this.description}}</td>
+        <td class="center">{{this.hsnSac}}</td>
+        <td class="num">{{this.quantity}} {{this.unit}}</td>
+        <td class="num">{{currency this.rate}}</td>
+        <td class="num">{{currency this.amount}}</td>
+      </tr>
+      {{/each}}
+      <tr class="total-row">
+        <td colspan="3" class="right">Total</td>
+        <td class="num">{{totalQuantity}}</td>
+        <td></td>
+        <td class="num">₹ {{currency totalAmount}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="summary-table">
+    <tr>
+      <td style="width:60%">
+        <div class="small muted">Amount Chargeable (in words)</div>
+        <div class="bold">{{amountInWords}}</div>
+      </td>
+      <td class="right">
+        {{#if isInterState}}
+        IGST: ₹ {{currency igstAmount}}<br/>
+        {{else}}
+        CGST: ₹ {{currency cgstAmount}} &nbsp; SGST: ₹ {{currency sgstAmount}}<br/>
+        {{/if}}
+        Round Off: ₹ {{currency roundOff}}
+      </td>
+    </tr>
+  </table>
+
+  <table class="hsn-table">
+    <thead>
+      <tr>
+        <th rowspan="2">HSN/SAC</th>
+        <th rowspan="2">Taxable Value</th>
+        {{#if isInterState}}
+        <th colspan="2">IGST</th>
+        {{else}}
+        <th colspan="2">CGST</th>
+        <th colspan="2">SGST</th>
+        {{/if}}
+        <th rowspan="2">Total Tax</th>
+      </tr>
+      <tr>
+        <th>Rate</th><th>Amount</th>
+        {{#unless isInterState}}<th>Rate</th><th>Amount</th>{{/unless}}
+      </tr>
+    </thead>
+    <tbody>
+      {{#each hsnWiseBreakup}}
+      <tr>
+        <td>{{this.hsnSac}}</td>
+        <td class="num">{{currency this.taxableValue}}</td>
+        {{#if ../isInterState}}
+        <td>{{this.igstRate}}%</td>
+        <td class="num">{{currency this.igstAmount}}</td>
+        {{else}}
+        <td>{{this.cgstRate}}%</td>
+        <td class="num">{{currency this.cgstAmount}}</td>
+        <td>{{this.sgstRate}}%</td>
+        <td class="num">{{currency this.sgstAmount}}</td>
+        {{/if}}
+        <td class="num">{{currency this.totalTax}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <div class="small muted" style="margin-top:8px">Tax Amount (in words): <span class="bold">{{taxAmountInWords}}</span></div>
+
+  <div class="footer-block">
+    <div class="small">
+      PAN: <span class="bold">{{pan}}</span><br/>
+      Bank: {{bankDetails.bankName}}, A/c {{bankDetails.accountNo}}<br/>
+      {{bankDetails.branch}} &amp; {{bankDetails.ifsc}}
+    </div>
+    <div class="signature-box">
+      for {{seller.name}}<br/><br/>
+      Authorised Signatory
+    </div>
+  </div>
+
+  <div class="footer-note">This is a Computer Generated Invoice</div>
+
+</body>
+</html>

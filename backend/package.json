@@ -1,0 +1,35 @@
+{
+  "name": "gst-billing-backend",
+  "version": "1.0.0",
+  "description": "GST Purchase & Sales Billing Software — Backend API",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "handlebars": "^4.7.8",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.3",
+    "multer": "^2.3.0",
+    "pdf-parse": "^2.4.5",
+    "puppeteer": "^22.15.0",
+    "tesseract.js": "^7.0.0",
+    "winston": "^3.13.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "eslint": "^9.8.0",
+    "prettier": "^3.3.3"
+  }
+}

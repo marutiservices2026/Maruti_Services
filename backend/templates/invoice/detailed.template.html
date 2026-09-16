@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>{{invoiceNo}}</title>
+<style>
+  @page { size: A4; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9px; color: #000; margin: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .num { text-align: right; }
+  .small { font-size: 8px; }
+  .bold { font-weight: bold; }
+  .title { font-size: 13px; font-weight: bold; }
+
+  .header-table td { border: 1px solid #000; padding: 2px 4px; }
+
+  /* Denser item table, built for volume — header repeats on every printed page */
+  .items-table { margin-top: 4px; }
+  .items-table thead { display: table-header-group; }
+  .items-table tfoot { display: table-footer-group; }
+  .items-table th { border: 1px solid #000; background: #eee; padding: 2px 4px; font-weight: bold; text-align: center; }
+  .items-table td { border: 1px solid #000; padding: 2px 4px; }
+
+  .summary-block { page-break-inside: avoid; margin-top: 4px; }
+  .summary-block table { border-collapse: collapse; }
+  .summary-block td { border: 1px solid #000; padding: 2px 4px; }
+
+  .signature-box { height: 55px; text-align: right; }
+  .footer-note { text-align: center; font-size: 7px; padding: 3px; }
+</style>
+</head>
+<body>
+
+  <table class="header-table">
+    <tr><td colspan="4" class="center title">{{documentTitle}} — {{copyType}}</td></tr>
+    <tr>
+      <td rowspan="2" style="width:50%">
+        <span class="bold">{{seller.name}}</span><br/>
+        {{seller.address}}<br/>
+        GSTIN: {{seller.gstin}} | {{seller.stateName}} ({{seller.stateCode}})
+      </td>
+      <td style="width:25%">Invoice No.: <span class="bold">{{invoiceNo}}</span></td>
+      <td style="width:25%">Dated: {{formatDate invoiceDate}}</td>
+    </tr>
+    <tr>
+      <td>Delivery Note: {{deliveryNote}}</td>
+      <td>Mode of Payment: {{modeOfPayment}}</td>
+    </tr>
+    <tr>
+      <td>
+        <span class="bold">Buyer:</span> {{buyer.name}}<br/>
+        {{buyer.address}}<br/>
+        GSTIN: {{buyer.gstin}} | {{buyer.stateName}} ({{buyer.stateCode}})
+      </td>
+      <td>{{#if buyersOrderNo}}Buyer's Order No.: {{buyersOrderNo}} ({{formatDate buyersOrderDate}}){{/if}}</td>
+      <td>Destination: {{destination}}</td>
+    </tr>
+  </table>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width:3%">#</th>
+        <th>Description</th>
+        <th style="width:8%">HSN/SAC</th>
+        <th style="width:8%">Qty</th>
+        <th style="width:6%">Unit</th>
+        <th style="width:9%">Rate</th>
+        <th style="width:11%">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td class="center">{{inc @index}}</td>
+        <td>{{this.description}}</td>
+        <td class="center">{{this.hsnSac}}</td>
+        <td class="num">{{this.quantity}}</td>
+        <td class="center">{{this.unit}}</td>
+        <td class="num">{{currency this.rate}}</td>
+        <td class="num">{{currency this.amount}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3" class="right bold">Total</td>
+        <td class="num bold">{{totalQuantity}}</td>
+        <td></td>
+        <td></td>
+        <td class="num bold">₹ {{currency totalAmount}}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="summary-block">
+    <table>
+      <tr>
+        <td style="width:60%">
+          Amount Chargeable (in words)<br/>
+          <span class="bold">{{amountInWords}}</span>
+        </td>
+        <td>
+          {{#if isInterState}}
+          IGST: ₹ {{currency igstAmount}}<br/>
+          {{else}}
+          CGST: ₹ {{currency cgstAmount}}<br/>
+          SGST: ₹ {{currency sgstAmount}}<br/>
+          {{/if}}
+          Round Off: ₹ {{currency roundOff}}
+        </td>
+      </tr>
+    </table>
+
+    <table style="margin-top:4px">
+      <tr>
+        <td class="bold center">HSN/SAC</td>
+        <td class="bold center">Taxable Value</td>
+        {{#if isInterState}}
+        <td class="bold center" colspan="2">IGST</td>
+        {{else}}
+        <td class="bold center" colspan="2">CGST</td>
+        <td class="bold center" colspan="2">SGST</td>
+        {{/if}}
+        <td class="bold center">Total Tax</td>
+      </tr>
+      {{#each hsnWiseBreakup}}
+      <tr>
+        <td class="center">{{this.hsnSac}}</td>
+        <td class="num">{{currency this.taxableValue}}</td>
+        {{#if ../isInterState}}
+        <td class="num">{{this.igstRate}}%</td>
+        <td class="num">{{currency this.igstAmount}}</td>
+        {{else}}
+        <td class="num">{{this.cgstRate}}%</td>
+        <td class="num">{{currency this.cgstAmount}}</td>
+        <td class="num">{{this.sgstRate}}%</td>
+        <td class="num">{{currency this.sgstAmount}}</td>
+        {{/if}}
+        <td class="num">{{currency this.totalTax}}</td>
+      </tr>
+      {{/each}}
+    </table>
+
+    <table style="margin-top:4px">
+      <tr>
+        <td style="width:60%">
+          Tax Amount (in words)<br/>
+          <span class="bold">{{taxAmountInWords}}</span>
+        </td>
+        <td>Company's PAN: <span class="bold">{{pan}}</span></td>
+      </tr>
+      <tr>
+        <td>
+          Bank: {{bankDetails.bankName}}, A/c {{bankDetails.accountNo}}<br/>
+          {{bankDetails.branch}} &amp; {{bankDetails.ifsc}}
+        </td>
+        <td class="signature-box">
+          for {{seller.name}}<br/>
+          Authorised Signatory
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="footer-note">This is a Computer Generated Invoice</div>
+
+</body>
+</html>
