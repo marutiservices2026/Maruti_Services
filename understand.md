@@ -12,7 +12,15 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-17 (Backspace-to-login saga resolved pragmatically: rather than keep
+Last updated: 2026-09-17 (extended the loading-spinner fix to the two cases outside
+`DashboardLayout`'s reach — `/login`'s own lazy chunk and the very first app paint —
+`AppRoutes.jsx`'s outer `PageFallback` now matches: full-viewport, centered, same `Loader`
+component. Verified live on a fresh, throttled `/login` load. See §6. Also: fixed the whole app blanking to a bare corner spinner on every
+page navigation — a single outer Suspense boundary in `AppRoutes.jsx` caught every lazy
+page chunk and replaced Sidebar+Navbar along with it; added an inner Suspense around just
+`<Outlet/>` in `DashboardLayout.jsx` with a properly centered loader, so only the content
+area swaps out. Verified live via a throttled-network Playwright test with a faked auth
+state. See §6. Also: Backspace-to-login saga resolved pragmatically: rather than keep
 chasing every possible source of a stray history entry, Backspace is now simply disabled on
 Dashboard entirely (there's no sensible "back" from "home" anyway) — `DashboardLayout.jsx`
 skips the shortcut on `/`, `Navbar.jsx` hides its hint there too. See §9. Also: found the REAL cause of Backspace-to-login, after two rounds
@@ -540,7 +548,9 @@ back to a bundled asset:
   already open.
 - **`Backspace`** (same `isInteractive` guard, plus a check that no `.modal-overlay` is open)
   — global "back" (`navigate(-1)`), wired in `DashboardLayout.jsx`. A hint (`Backspace Back`)
-  is always visible in the top navbar.
+  is visible in the top navbar on every page **except Dashboard (`/`)** — disabled there
+  entirely as of 2026-09-17 (see the dated Backspace-to-login note further down); the hint
+  is hidden on `/` too so it doesn't advertise a shortcut that no longer does anything.
 - **`Escape`** — closes modals / cancels in-progress forms.
 - **`Ctrl+Enter`** — saves the currently open form (deliberately not Tally's literal `Ctrl+A`,
   which would break normal text-selection).
@@ -1675,6 +1685,68 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     login this session doesn't have credentials for) — worth confirming the hint is gone on
     Dashboard and Backspace is a no-op there, while still working normally on every other
     page (e.g. Invoice Detail back to the list).
+- **Real bug, reported live with a screenshot, 2026-09-17: the whole app (sidebar, navbar,
+  everything) went blank with just a tiny corner spinner on every single page-to-page
+  navigation, not just first load.** Root cause: `AppRoutes.jsx` wraps its entire `<Routes>`
+  tree in one `<Suspense fallback={<PageFallback/>}>` — every page component is
+  `React.lazy`-loaded (Section 8's code-splitting), and `DashboardLayout` (Sidebar + Navbar)
+  sits *inside* that same Route tree, even though `DashboardLayout` itself is a normal,
+  non-lazy import. React Suspense doesn't care which specific descendant actually suspends —
+  when anything inside a boundary suspends, the **entire subtree under that boundary**
+  (including already-loaded, non-suspending siblings like Sidebar/Navbar) gets replaced by
+  the fallback until it resolves. So navigating from, say, Invoices to Parties suspended on
+  `ProductList`'s lazy chunk, and the single outer boundary blanked the whole screen down to
+  a bare `<div className="page"><span className="loader"/></div>` — no header, no sidebar,
+  just a 16px spinner pinned to the top-left corner, exactly what the screenshot showed.
+  **Fix**: added a *second*, inner `Suspense` boundary in `DashboardLayout.jsx` around just
+  `<Outlet/>`, with a properly centered `Loader` + "Loading…" label (`ContentLoader`) as its
+  fallback — Sidebar and Navbar now sit *outside* this inner boundary (and are non-lazy
+  imports besides), so a page-chunk suspending only ever replaces the content area, never
+  the persistent chrome around it. `AppRoutes.jsx`'s outer Suspense is untouched and still
+  needed for `/login`'s own lazy chunk (rendered outside `DashboardLayout` entirely, so it
+  has no inner boundary to catch it). **Verified live, not just by reading the code**: faked
+  a logged-in state via `localStorage` (`gst-billing-auth`, matching `authSlice.js`'s
+  zustand-persist shape — API calls then correctly 401 since the fake token is garbage, but
+  that's irrelevant to testing layout/routing mechanics) to get past `ProtectedRoute`
+  without real credentials, throttled the network via a CDP session
+  (`Network.emulateNetworkConditions`) so a lazy chunk load was actually slow enough to
+  observe, then clicked a sidebar link and screenshotted mid-flight: Sidebar and Navbar
+  fully present and interactive (active link correctly highlighted), content area showing
+  the new centered "Loading…" spinner — confirmed both the bug's old mechanism and the
+  fix's correctness in one pass, not assumed from React's documented Suspense semantics
+  alone.
+  - **User asked to make this consistent everywhere, not just inside `DashboardLayout`.**
+    Correct catch: `AppRoutes.jsx`'s own outer `PageFallback` (the original bare
+    `<div className="page"><span className="loader"/></div>`) still fires for two cases
+    `DashboardLayout`'s inner boundary can't reach — `/login`'s own lazy chunk (rendered
+    as a sibling Route, outside `DashboardLayout` entirely) and the very first paint of the
+    whole app before any route has mounted. Fixed `PageFallback` itself to match: a full
+    viewport (not `.page`-scoped — there's no sidebar/card context to sit inside yet, this
+    is what renders *before* the app has decided what to show), centered, using the same
+    `Loader` component with a "Loading…" label. Verified live on a genuinely fresh,
+    network-throttled load of `/login` (a one-shot `browser-automation` invocation gets a
+    fresh browser context every time, so no chunk-cache to work around): the centered
+    spinner replaced the old corner one, and the page's final text capture confirmed the
+    "Loading…" label renders alongside it.
+  - **Full audit across every page, at the user's request, once both fixes landed:**
+    1. Client-side route transitions — re-ran the throttled-network + faked-auth Playwright
+       test across five distinct destinations in one session (`/invoices`, `/products`,
+       `/ewaybills`, `/parties`, back to `/`, all via real `<a>` clicks, not `page.goto` —
+       a hard reload wouldn't actually exercise the persistent-Sidebar behavior being
+       tested): every single one kept Sidebar + Navbar mounted mid-flight, showed the
+       "Loading…" text, and settled on the correct URL. Not just the one page tested
+       earlier — genuinely universal.
+    2. Per-page own data-loading states (separate concern from route-chunk loading —
+       these fire *after* a page has already mounted, while it fetches its own data) —
+       grepped every page component: 16 instances across `Dashboard.jsx`,
+       `InvoiceList/Detail`, `InvoiceForm.jsx` (covers both `CreateInvoice.jsx` and
+       `EditInvoice.jsx`, both thin wrappers around it), `PartyList/Form`,
+       `ProductList/Form`, `EwayBillTracker.jsx`, `CompanyProfile.jsx`,
+       `ManageMasters.jsx`, `TemplateGallery.jsx` — **already 100% consistent**, all
+       using the shared `Loader` component with a descriptive label
+       (`"Loading invoices…"`, `"Loading company profile…"`, etc.). Nothing here needed
+       fixing; this was never actually broken, only the route-chunk-level Suspense
+       boundaries were.
 - **Render free-plan keep-alive, added 2026-09-16 (prep work — app isn't deployed yet).**
   Render's free web-service plan auto-sleeps a service after ~15 minutes with no incoming
   requests, then cold-starts (slow) on the next one. The user asked for this to be handled

@@ -11,11 +11,27 @@
 // The "Space opens a new-entry form" shortcut lives in each list page itself via
 // hooks/useSpaceShortcut.js, not here — only the page owns the modal state that needs
 // to open.
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar, { SIDEBAR_LINKS } from './Sidebar.jsx';
 import Navbar from './Navbar.jsx';
+import Loader from '../common/Loader.jsx';
 import { isInteractive } from '../../utils/domFocus.js';
+
+// Page-content loading state for route-to-route navigation (lazy-loaded page chunks —
+// see AppRoutes.jsx). Deliberately a LOCAL Suspense boundary around just <Outlet/>, not
+// one wrapping this whole layout: React Suspense replaces everything inside the boundary
+// that catches the suspense, and AppRoutes.jsx's outer Suspense used to be the only one,
+// meaning it caught every page's lazy chunk and blanked the entire app — sidebar, navbar,
+// everything — on every single page navigation, not just first load. Scoping the boundary
+// to only the swappable content keeps Sidebar/Navbar mounted and visible the whole time.
+function ContentLoader() {
+  return (
+    <div className="page" style={{ display: 'flex', justifyContent: 'center', paddingTop: 120 }}>
+      <Loader label="Loading…" />
+    </div>
+  );
+}
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -69,7 +85,9 @@ export default function DashboardLayout() {
       <Sidebar />
       <div className="content">
         <Navbar />
-        <Outlet />
+        <Suspense fallback={<ContentLoader />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   );

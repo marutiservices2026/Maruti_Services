@@ -4,6 +4,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute.jsx';
 import DashboardLayout from '../components/layout/DashboardLayout.jsx';
+import Loader from '../components/common/Loader.jsx';
 
 const Login = lazy(() => import('../pages/auth/Login.jsx'));
 const Dashboard = lazy(() => import('../pages/dashboard/Dashboard.jsx'));
@@ -20,10 +21,23 @@ const CompanyProfile = lazy(() => import('../pages/settings/CompanyProfile.jsx')
 const ManageMasters = lazy(() => import('../pages/settings/ManageMasters.jsx'));
 const TemplateGallerySettings = lazy(() => import('../pages/settings/TemplateGallery.jsx'));
 
+// This outer boundary only actually fires for lazy chunks that DashboardLayout's own
+// inner Suspense (see DashboardLayout.jsx) can't catch — /login's chunk (rendered outside
+// DashboardLayout entirely) and the very first app load before any route has mounted. Full
+// viewport, not `.page`-scoped, since at this point there's no sidebar/card context to sit
+// inside yet — this is what a user sees before the app has decided what to show them.
 function PageFallback() {
   return (
-    <div className="page">
-      <span className="loader" />
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--color-paper-white)',
+      }}
+    >
+      <Loader label="Loading…" />
     </div>
   );
 }
