@@ -14,12 +14,6 @@ export function useAuth() {
     return res.data.data.user;
   };
 
-  const register = async (payload) => {
-    const res = await authApi.register(payload);
-    setAuth(res.data.data.user, res.data.data.accessToken);
-    return res.data.data.user;
-  };
-
   const logout = async () => {
     try {
       await authApi.logout();
@@ -32,7 +26,6 @@ export function useAuth() {
     user,
     isAuthenticated: Boolean(accessToken && user),
     login,
-    register,
     logout,
   };
 }

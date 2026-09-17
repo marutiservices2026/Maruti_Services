@@ -48,6 +48,11 @@ export default function DashboardLayout() {
         !e.altKey &&
         !e.ctrlKey &&
         !e.metaKey &&
+        location.pathname !== '/' && // Dashboard is "home" — there's no sensible "back"
+        // from it, and history can still occasionally hold a page you shouldn't return to
+        // (e.g. a stale /login entry from before a fix, or one predating a hard redirect
+        // this SPA-level shortcut has no way to know about) — simplest fix is to just not
+        // offer Backspace-back here at all, at the user's explicit request.
         !isInteractive(document.activeElement) &&
         !document.querySelector('.modal-overlay')
       ) {
@@ -57,7 +62,7 @@ export default function DashboardLayout() {
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate]);
+  }, [navigate, location.pathname]);
 
   return (
     <div className="app-shell">

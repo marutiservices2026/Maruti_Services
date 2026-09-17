@@ -145,3 +145,23 @@ export const logout = asyncHandler(async (req, res) => {
   res.clearCookie(REFRESH_COOKIE_NAME);
   return new ApiResponse(200, null, 'Logged out.').send(res);
 });
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'At least 8 characters'),
+});
+
+// Company Profile's "Change Password" (Settings) — req.user comes from authMiddleware's
+// verified JWT, so this only ever changes the caller's own password, never another user's.
+export const changePassword = asyncHandler(async (req, res) => {
+  const user = await methods.findOne(User, { _id: req.user.id }, { select: '+passwordHash' });
+  const isMatch = await bcrypt.compare(req.body.currentPassword, user.passwordHash);
+  if (!isMatch) {
+    throw ApiError.unauthorized('Current password is incorrect.');
+  }
+
+  const passwordHash = await bcrypt.hash(req.body.newPassword, BCRYPT_COST);
+  await methods.updateById(User, req.user.id, { passwordHash });
+
+  return new ApiResponse(200, null, 'Password changed.').send(res);
+});

@@ -54,6 +54,12 @@ router.post(
 );
 router.post('/auth/refresh', authController.refresh);
 router.post('/auth/logout', authController.logout);
+router.post(
+  '/auth/change-password',
+  authMiddleware,
+  validate(authController.changePasswordSchema),
+  authController.changePassword
+);
 
 // masters (Tally-style dynamic setup — Section 6a). Custom fields (FieldConfig) used to
 // live here too — removed 2026-09-15, see understand.md.

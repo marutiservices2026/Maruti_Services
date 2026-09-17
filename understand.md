@@ -12,7 +12,27 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-16 (the PDF-500 production bug is fully resolved: a second Render
+Last updated: 2026-09-17 (Backspace-to-login saga resolved pragmatically: rather than keep
+chasing every possible source of a stray history entry, Backspace is now simply disabled on
+Dashboard entirely (there's no sensible "back" from "home" anyway) — `DashboardLayout.jsx`
+skips the shortcut on `/`, `Navbar.jsx` hides its hint there too. See §9. Also: found the REAL cause of Backspace-to-login, after two rounds
+of SPA-level `replace` fixes didn't fully resolve it: `axiosClient.js`'s failed-refresh
+handler did a hard `window.location.href = '/login'`, a completely different navigation
+mechanism than React Router's history — no amount of `navigate(path, {replace:true})`
+fixing elsewhere can touch an entry created that way. Fixed to `window.location.replace(...)`;
+critically, this can't retroactively fix an already-poisoned browser tab, so verifying it
+needs a brand-new tab, not the one used for earlier testing. See §9. Also: added a
+show/hide toggle to the shared `Input.jsx` for every
+password field app-wide, not just Company Profile's new one — verified live via Playwright
+against the login page. Also: added `POST /auth/change-password` — the app had no password-
+change capability at all before this — wired into a new form on Company Profile, verified
+live with a disposable throwaway user; and removed self-service registration from the login
+screen entirely, since this app is genuinely single-tenant and the register flow had no
+invite gate — the backend route itself stays reachable, only the UI path and now-dead
+frontend code around it are gone. See §9. Also: fixed downloaded invoice PDFs saving with a random UUID filename
+instead of the invoice number — `window.open` on a blob URL ignores the server's
+`Content-Disposition`, fixed with a proper `<a download>` click; verified via a Playwright
+download-event test. See §6. Also: the PDF-500 production bug is fully resolved: a second Render
 service (`maruti-services-docket`, Docker runtime) was created since the original
 `maruti-services` service turned out not to be Blueprint-linked and couldn't switch runtime
 in place; verified with a real authenticated PDF request over curl (200, real 2-page PDF).
@@ -1532,6 +1552,129 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
     serving local `gst_billing_demo`, untouched throughout) still logs in fine too.
   - Real credentials for this login are not written here — check with the user directly if
     you need them; this file is broadly readable context, not a secrets store.
+- **Self-service registration removed from the login screen, and a real "Change Password"
+  added to Company Profile, both 2026-09-17.**
+  - **`POST /auth/change-password`** (new, `auth.controller.js`) — the app never had any
+    way to change a password at all before this (confirmed via a repo-wide search for
+    `changePassword`/`updatePassword`, zero hits). Takes `currentPassword` + `newPassword`
+    (min 8 chars, same rule as register), verifies the current one with `bcrypt.compare`
+    against the caller's own `passwordHash` (explicitly re-selected — `User.model.js` has
+    `select: false` on it, same as login), then re-hashes at the same `BCRYPT_COST = 12` as
+    everywhere else in this file. Scoped to `req.user.id` from the verified JWT — there was
+    never a way to target another user's password, by construction, not by an extra check.
+    No session/refresh-token invalidation on change — this app has no server-side revocation
+    list for refresh tokens at all (they're stateless, expiry-only), so that's an existing
+    limitation, not something this feature regressed. Wired up in
+    `frontend/pages/settings/CompanyProfile.jsx` as a second, independent form (own state,
+    own submit handler — deliberately not sharing the "Save Changes" button, so a mistake
+    in one can't half-submit the other), laid out **beside** the company-details form in a
+    wrapping flex row (not stacked below it) — the user explicitly asked not to have to
+    scroll down to reach it, so it sits in the unused horizontal space next to the main
+    form instead. **Verified
+    live with a disposable throwaway user** (created directly in local Mongo, deleted after
+    — never touched the real Ramesh Patel/`demo@patelflexible.com` account, since testing
+    this against a real password isn't something to do casually): wrong current password →
+    `401`; correct current password → `200`; old password stops working after → `401`; new
+    password works → `200`. Also had to restart the local dev backend mid-session to pick
+    this up — it turned out to be running as a plain `node index.js` (no `--watch`), not
+    the `npm run dev` watch-mode script, so it silently kept serving the old `router.js`
+    until restarted; worth checking which one is actually running if a freshly-added route
+    404s locally despite looking correct in the file.
+  - **Show/hide password toggle added directly to the shared `Input.jsx`**, not just to the
+    Change Password fields — any `<Input type="password">` anywhere in the app gets it for
+    free, so Login's password field picked it up automatically too. Implementation: when
+    `props.type === 'password'`, `Input.jsx` renders the `<input>` inside a
+    `.password-input-wrap` with an inline eye-icon `<button type="button">` (local `visible`
+    state, `tabIndex={-1}` so it doesn't steal Tab order from the surrounding form) that
+    flips the actual DOM `type` between `password`/`text`; the same icon draws its own
+    diagonal slash when toggled open (`EyeIcon`'s `off` prop) rather than swapping to a
+    second icon asset. CSS: `.password-input-wrap` (`position: relative`) +
+    `.password-input-toggle` (absolutely positioned, `right: 0`) + extra `padding-right` on
+    `.input` inside the wrap so typed text never runs under the icon. Verified live via
+    Playwright against the (unauthenticated, so no login needed to test) `/login` page: `#
+    password`'s `type` attribute flips `password` -> `text` on click, and a screenshot
+    confirmed the typed value actually becomes readable and the icon visibly changes state.
+  - **Login.jsx's registration mode (`RegisterForm`, the "New here? Create your business
+    account" toggle) removed entirely**, not just hidden — this app is genuinely
+    single-tenant (one real business, one Company; see the migration note just above for
+    why there's no "add a user to an existing company" flow at all), and `/auth/register`
+    had no invite gate, so leaving it reachable from the login screen meant literally
+    anyone who found the production URL could create an unrelated second Company in the
+    same database. The dead code this left behind was removed too, not left unreachable:
+    `useAuth.js`'s `register()` action and `auth.api.js`'s `register` export, both confirmed
+    to have zero remaining callers before deletion. **The backend `/auth/register` route
+    itself was deliberately left in place** — only the UI path to it is gone; it's still
+    directly callable if a legitimate second deploy of this software (a different company
+    entirely) ever needs it.
+- **Real bug, reported live: pressing Backspace on Dashboard went to the login page,
+  2026-09-17.** Not a bug in `DashboardLayout.jsx`'s Backspace shortcut itself (`Backspace`
+  = `navigate(-1)`, deliberately mirroring the browser's own back button — see that file's
+  header comment) — the shortcut was working exactly as designed, the problem was what it
+  found one step back in history. `Login.jsx`'s post-login redirect did `navigate('/')`, a
+  normal *push*, so `/login` stayed sitting in the history stack directly behind Dashboard;
+  any "go back" action — this Backspace shortcut, or literally the browser's own back
+  button — landed back on it. `ProtectedRoute.jsx` already got the other half of this right
+  (`<Navigate to="/login" replace />` when redirecting an unauthenticated user *to* login,
+  so a dead protected route doesn't linger in history either), just not the return trip.
+  Fixed to `navigate('/', { replace: true })`, which removes `/login` from history instead
+  of leaving it one step behind. Not yet re-verified live post-fix (needs a real login to
+  exercise the redirect, which this session doesn't have local credentials for) — worth a
+  quick manual check: log in, land on Dashboard, press Backspace, confirm it does *not* go
+  to `/login`.
+  - **User re-tested and still saw the bug.** Likely explanation, not yet confirmed: browser
+    navigation history isn't reset by a page refresh or by Vite HMR picking up the file
+    change — it persists for the tab's whole lifetime. If the retest was done by refreshing
+    an already-logged-in tab rather than actually logging out and back in through the form,
+    the stale pre-fix `/login` entry pushed hours earlier in that same session is still
+    sitting in history, untouched by the code change; the fix only affects logins that
+    happen *after* it's live. Confirmed there's no separate "already authenticated" guard
+    on `/login` in `AppRoutes.jsx` either (it's an unguarded plain route) — so once history
+    does land there, nothing auto-redirects back out, matching the reported symptom exactly
+    and pointing at stale history over a broken fix.
+  - **Found and fixed a second, related gap while investigating**: `Navbar.jsx`'s logout
+    button also did a plain `navigate('/login')` (push, not replace) — so a logout→login
+    cycle left the just-ended session's last page sitting one "back" step behind `/login`
+    too. Fixed to `navigate('/login', { replace: true })`, same reasoning as the
+    `Login.jsx` fix. Traced through the full login→logout→login round trip by hand against
+    both fixes together and couldn't construct a sequence that still lands Backspace on
+    `/login` — reinforcing that the remaining report is most likely stale history in an
+    already-open tab, not a third gap, but **genuinely unconfirmed** until the user retests
+    with an actual fresh logout + login (not just a refresh).
+  - **User retested with a genuine fresh logout+login — bug still reproduced. Root cause
+    found: a third, different navigation mechanism entirely.** `axiosClient.js`'s response
+    interceptor, on a failed silent token refresh, did `window.location.href = '/login'` —
+    a hard, full-page browser navigation (axios interceptors run outside React Router
+    entirely, so this can't use `navigate()`). Critically, **this creates a real browser
+    history entry through a completely different code path than `history.pushState`/
+    `replaceState`** — no `{ replace: true }` fix to any SPA-level `navigate()` call (not
+    `Login.jsx`'s, not `Navbar.jsx`'s) can ever remove or affect an entry created this way;
+    they're unrelated mechanisms that both happen to write to the same browser history
+    stack. Any time the access token expired and the refresh cookie was also invalid/absent
+    — routine over a long dev session with many backend restarts — this fired and left a
+    permanent `/login` entry sitting in that tab's actual history, reachable by Backspace
+    (or the real back button) forever after, regardless of how correct the SPA-level code
+    became. Fixed to `window.location.replace('/login')` — `.replace()` is the hard-
+    navigation equivalent of `history.replaceState`, swapping the current entry instead of
+    adding one. **Important caveat, told to the user**: this fix cannot retroactively clean
+    an already-poisoned tab — if the old `.href =` code already ran once in a given
+    browser tab's lifetime, that bad entry is permanently baked into that tab's history
+    until the tab is closed; testing this fix requires a brand-new tab or an incognito
+    window, not the same tab used for earlier testing. Not yet confirmed by the user as of
+    this note.
+  - **User asked to just disable Backspace on Dashboard instead of continuing to chase every
+    possible source of a stray history entry.** Pragmatic final call, not a workaround for
+    an unfixed bug — Dashboard is "home"; there's no sensible "back" destination from it
+    regardless of how clean history is, so removing the shortcut there sidesteps the whole
+    class of problem (including any future source of a bad entry this SPA can't predict,
+    like a hard redirect elsewhere). `DashboardLayout.jsx`'s Backspace handler now skips
+    entirely when `location.pathname === '/'` (added `location.pathname` to the effect's
+    dependency array so the listener closure always has the current route, not a stale one
+    from mount). `Navbar.jsx`'s persistent `Backspace Back` hint — shown on every
+    authenticated page — is now also hidden specifically on `/`, so it doesn't advertise a
+    shortcut that no longer does anything there. Not yet visually verified (needs a real
+    login this session doesn't have credentials for) — worth confirming the hint is gone on
+    Dashboard and Backspace is a no-op there, while still working normally on every other
+    page (e.g. Invoice Detail back to the list).
 - **Render free-plan keep-alive, added 2026-09-16 (prep work — app isn't deployed yet).**
   Render's free web-service plan auto-sleeps a service after ~15 minutes with no incoming
   requests, then cold-starts (slow) on the next one. The user asked for this to be handled

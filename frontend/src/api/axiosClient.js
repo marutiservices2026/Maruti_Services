@@ -42,7 +42,13 @@ axiosClient.interceptors.response.use(
         return axiosClient(config);
       } catch {
         useAuthStore.getState().clearAuth();
-        window.location.href = '/login';
+        // .replace(), not a plain href assignment — this is a hard, full-page navigation
+        // (it runs outside React Router entirely, since axios interceptors have no router
+        // context), and .href= would push a brand-new history entry that no SPA-level
+        // navigate({replace:true}) fix (see Login.jsx, Navbar.jsx) can ever remove — it's a
+        // completely separate mechanism. .replace() is the hard-navigation equivalent of
+        // history.replaceState: it swaps the current entry instead of adding one.
+        window.location.replace('/login');
         return Promise.reject(error);
       }
     }

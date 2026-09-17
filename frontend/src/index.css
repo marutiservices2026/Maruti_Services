@@ -401,6 +401,34 @@ input[type='file']::file-selector-button:hover {
   margin-top: 3px;
 }
 
+.password-input-wrap {
+  position: relative;
+}
+
+.password-input-wrap .input {
+  padding-right: 34px;
+}
+
+.password-input-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-slate-text);
+  cursor: pointer;
+}
+
+.password-input-toggle:hover {
+  color: var(--color-ink-navy);
+}
+
 /* ---------- Date picker (replaces the native <input type="date"> popup, which can't be
    restyled at all — see DatePicker.jsx) ---------- */
 .date-picker {
