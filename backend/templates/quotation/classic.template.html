@@ -1,0 +1,457 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{quotationNo}}</title>
+    <style>
+      /* Deliberately a near-copy of templates/invoice/classic.template.html's styling, for
+     visual consistency with the rest of this app's printed output — but this file is its
+     own independent copy, not a shared partial, so the pinned invoice template (see
+     understand.md §2.15, §8 — visually pinned to a user reference image) is never at risk
+     of being touched by a quotation-only change, or vice versa. */
+      @page {
+        size: A4;
+        margin: 10mm;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 10.5px;
+        color: #1a1a1a;
+        margin: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .center {
+        text-align: center;
+      }
+      .right {
+        text-align: right;
+      }
+      .num {
+        text-align: right;
+      }
+      .bold {
+        font-weight: 700;
+      }
+      .italic {
+        font-style: italic;
+      }
+      .small {
+        font-size: 9px;
+      }
+
+      .top-band {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding-bottom: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      img.logo {
+        height: 46px;
+      }
+      .company-name {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+      .tagline {
+        font-size: 11px;
+        color: #666;
+        margin-top: 1px;
+      }
+      .doc-title {
+        font-size: 24px;
+        font-weight: 800;
+        text-align: right;
+      }
+
+      .invoice-box {
+        border: 1.4px solid #2a2a2a;
+        margin-top: 14px;
+      }
+
+      .header-table td {
+        border: 1px solid #2a2a2a;
+        padding: 12px 14px;
+        vertical-align: top;
+      }
+      .party-cell {
+        width: 46%;
+      }
+      .label {
+        font-size: 9px;
+        color: #333;
+      }
+      .value {
+        font-weight: 700;
+        font-size: 11px;
+        margin-top: 1px;
+      }
+
+      .items-table th {
+        border: 1px solid #2a2a2a;
+        background: #e9e9e9;
+        font-weight: 700;
+        padding: 10px 8px;
+        text-align: center;
+        font-size: 10px;
+      }
+      .items-table td {
+        border: 1px solid #2a2a2a;
+        padding: 10px 8px;
+      }
+      .items-table .tax-row td {
+        font-style: italic;
+        border-top: none;
+      }
+      .items-table .total-row td {
+        font-weight: 700;
+        font-size: 12px;
+        border-top: 1.4px solid #2a2a2a;
+      }
+
+      .words-table td {
+        border: 1px solid #2a2a2a;
+        border-top: none;
+        padding: 12px 14px;
+        vertical-align: top;
+      }
+      .eoe-cell {
+        text-align: right;
+        font-style: italic;
+        font-size: 10px;
+      }
+
+      .hsn-table th,
+      .hsn-table td {
+        border: 1px solid #2a2a2a;
+        padding: 9px 8px;
+        text-align: center;
+      }
+      .hsn-table th {
+        background: #e9e9e9;
+        font-weight: 700;
+        font-size: 9.5px;
+      }
+      .hsn-table .total-row td {
+        font-weight: 700;
+      }
+
+      .footer-info-table td {
+        border: 1px solid #2a2a2a;
+        border-top: none;
+        padding: 16px 14px;
+        vertical-align: top;
+      }
+      .pan-cell {
+        width: 55%;
+      }
+      .signature-block {
+        margin-top: 30px;
+        text-align: right;
+      }
+
+      .page-footer {
+        margin-top: 18px;
+      }
+      .footer-note {
+        text-align: center;
+        font-style: italic;
+        font-size: 9px;
+        padding: 8px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="top-band">
+        <div class="brand">
+          <img class="logo" src="{{logoUrl}}" />
+          <div>
+            <div class="company-name">{{companyName}}</div>
+            {{#if tagline}}
+            <div class="tagline">{{tagline}}</div>
+            {{/if}}
+          </div>
+        </div>
+        <div>
+          <div class="doc-title">Separate Bill</div>
+        </div>
+      </div>
+
+      <div class="invoice-box">
+        <table class="header-table">
+          <tr>
+            <td rowspan="3" class="party-cell">
+              From,<br />
+              <span class="bold">{{seller.name}}</span><br />
+              {{seller.address}}<br />
+              State Name : {{seller.stateName}}, Code : {{seller.stateCode}}<br />
+              GSTIN/UIN : {{seller.gstin}}
+            </td>
+            <td>
+              <div class="label">Separate Bill No.</div>
+              <div class="value">{{quotationNo}}</div>
+            </td>
+            <td>
+              <div class="label">Dated</div>
+              <div class="value">{{formatDateDash quotationDate}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="label">Delivery Note</div>
+              <div class="value">{{deliveryNote}}</div>
+            </td>
+            <td>
+              <div class="label">Mode/Terms of Payment</div>
+              <div class="value">{{modeOfPayment}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="label">Supplier's Ref.</div>
+              <div class="value">{{supplierRef}}</div>
+            </td>
+            <td>
+              <div class="label">Other Reference(s)</div>
+              <div class="value">{{otherReferences}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td rowspan="4" class="party-cell">
+              To,<br />
+              <span class="bold">{{buyer.name}}</span><br />
+              {{buyer.address}}<br />
+              State Name : {{buyer.stateName}}, Code : {{buyer.stateCode}}<br />
+              GSTIN/UIN : {{buyer.gstin}}
+            </td>
+            <td>
+              <div class="label">Buyer's Order No.</div>
+              <div class="value">{{buyersOrderNo}}</div>
+            </td>
+            <td>
+              <div class="label">Dated</div>
+              <div class="value">{{formatDateDash buyersOrderDate}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="label">Despatch Document No.</div>
+              <div class="value">{{despatchDocNo}}</div>
+            </td>
+            <td>
+              <div class="label">Delivery Note Date</div>
+              <div class="value">{{formatDateDash despatchDocDate}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="label">Despatched through</div>
+              <div class="value">{{despatchedThrough}}</div>
+            </td>
+            <td>
+              <div class="label">Destination</div>
+              <div class="value">{{destination}}</div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2">
+              <div class="label">Terms of Delivery</div>
+              <div class="value">{{termsOfDelivery}}</div>
+            </td>
+          </tr>
+        </table>
+
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th style="width: 5%">Sl.<br />No.</th>
+              <th>Description of Goods</th>
+              <th style="width: 9%">HSN/SAC</th>
+              <th style="width: 11%">Quantity</th>
+              <th style="width: 9%">Rate</th>
+              <th style="width: 6%">per</th>
+              <th style="width: 13%">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each items}}
+            <tr>
+              <td class="center">{{inc @index}}</td>
+              <td>{{this.description}}</td>
+              <td class="center">{{this.hsnSac}}</td>
+              <td class="right bold">{{qty this.quantity}} {{this.unit}}</td>
+              <td class="right">{{currency this.rate}}</td>
+              <td class="center">{{this.unit}}</td>
+              <td class="right">{{currency this.amount}}</td>
+            </tr>
+            {{/each}} {{#if isInterState}}
+            <tr class="tax-row">
+              <td colspan="6" class="right">Est. IGST @ {{igstRate}}%</td>
+              <td class="right">{{currency igstAmount}}</td>
+            </tr>
+            {{else}}
+            <tr class="tax-row">
+              <td colspan="6" class="right">Est. CGST @ {{cgstRate}}%</td>
+              <td class="right">{{currency cgstAmount}}</td>
+            </tr>
+            <tr class="tax-row">
+              <td colspan="6" class="right">Est. SGST @ {{sgstRate}}%</td>
+              <td class="right">{{currency sgstAmount}}</td>
+            </tr>
+            {{/if}}
+            <tr class="tax-row">
+              <td colspan="6" class="right">Round Off</td>
+              <td class="right">{{signedAmount roundOff}}</td>
+            </tr>
+
+            <tr class="total-row">
+              <td colspan="3" class="right">Estimated Total</td>
+              <td class="right">{{qty totalQuantity}}{{#if commonUnit}} {{commonUnit}}{{/if}}</td>
+              <td></td>
+              <td></td>
+              <td class="right">Rs {{currency totalAmount}}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table class="words-table">
+          <tr>
+            <td style="width: 70%">
+              Amount (in words)<br />
+              <span class="bold">{{amountInWords}}</span>
+            </td>
+            <td class="eoe-cell">E &amp; O E</td>
+          </tr>
+        </table>
+
+        <table class="hsn-table">
+          <thead>
+            <tr>
+              <th rowspan="2">HSN/SAC</th>
+              <th rowspan="2">Taxable<br />Value</th>
+              {{#if isInterState}}
+              <th colspan="2">Est. Integrated Tax</th>
+              {{else}}
+              <th colspan="2">Est. Central Tax</th>
+              <th colspan="2">Est. State Tax</th>
+              {{/if}}
+              <th rowspan="2">Total Est.<br />Tax</th>
+            </tr>
+            <tr>
+              <th>Rate</th>
+              <th>Amount</th>
+              {{#unless isInterState}}
+              <th>Rate</th>
+              <th>Amount</th>
+              {{/unless}}
+            </tr>
+          </thead>
+          <tbody>
+            {{#each hsnWiseBreakup}}
+            <tr>
+              <td>{{this.hsnSac}}</td>
+              <td class="right">{{currency this.taxableValue}}</td>
+              {{#if ../isInterState}}
+              <td>{{this.igstRate}}%</td>
+              <td class="right">{{currency this.igstAmount}}</td>
+              {{else}}
+              <td>{{this.cgstRate}}%</td>
+              <td class="right">{{currency this.cgstAmount}}</td>
+              <td>{{this.sgstRate}}%</td>
+              <td class="right">{{currency this.sgstAmount}}</td>
+              {{/if}}
+              <td class="right">{{currency this.totalTax}}</td>
+            </tr>
+            {{/each}}
+            <tr class="total-row">
+              <td>Total</td>
+              <td class="right">{{currency taxableValue}}</td>
+              {{#if isInterState}}
+              <td></td>
+              <td class="right">{{currency igstAmount}}</td>
+              {{else}}
+              <td></td>
+              <td class="right">{{currency cgstAmount}}</td>
+              <td></td>
+              <td class="right">{{currency sgstAmount}}</td>
+              {{/if}}
+              <td class="right">{{currency totalTaxAmount}}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table class="words-table">
+          <tr>
+            <td>
+              Tax Amount (in words) &nbsp;
+              <span class="bold">{{taxAmountInWords}}</span>
+            </td>
+          </tr>
+        </table>
+
+        <table class="footer-info-table">
+          <tr>
+            <td class="pan-cell">
+              <span class="bold">Note</span><br />
+              <span class="small"
+                >Prices, quantities and taxes shown here are estimates and may change. This document
+                does not constitute a tax invoice and creates no payment obligation.</span
+              >
+            </td>
+            <td>
+              <span class="bold">Company's Bank Details</span><br />
+              Bank Name &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:&nbsp; {{bankDetails.bankName}}<br />
+              A/c No &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:&nbsp;
+              {{bankDetails.accountNo}}<br />
+              Branch &amp; IFS Code &nbsp;:&nbsp; {{bankDetails.branch}} &amp; {{bankDetails.ifsc}}
+              <div class="signature-block">
+                for {{seller.name}}<br /><br />
+                <span class="italic">Authorised Signatory</span>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="page-footer">
+        {{#if hasContactInfo}}
+        <div
+          class="contact-band"
+          style="
+            background: #2b2b2b;
+            color: #f2f2f2;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 8px 14px;
+            font-size: 9.5px;
+          "
+        >
+          <div style="display: flex; align-items: center; gap: 14px">
+            {{#if email}}
+            <div>{{email}}</div>
+            {{/if}} {{#if website}}
+            <div>{{website}}</div>
+            {{/if}}
+          </div>
+        </div>
+        {{/if}}
+        <div class="footer-note">
+          * This is a Computer Generated Separate Bill — Not a Tax Invoice *
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

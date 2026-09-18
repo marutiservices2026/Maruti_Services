@@ -30,6 +30,15 @@ section following the existing structure and note the date. Full protocol is in
   a deliberate, tested feature — don't remove or fight it. See `understand.md` §6.
 - The `classic` PDF invoice template is visually pinned to a user-supplied reference image —
   don't restyle it without being asked. See `understand.md` §2.15 and §8.
+- **Quotations, shown to the user as "Separate Bills" (added 2026-09-17, renamed same
+  day), are deliberately separate from Invoices** — own model (`Quotation`, internal naming
+  unchanged by the rename), own controller, own nav item, own numbering series (printed as
+  `SB-####`), structurally excluded from every sales/GST report. Never a tax invoice that's
+  merely hidden from tracking — a real request for that was declined outright (see
+  `understand.md` §12's opening note for why) in favor of this honest version. "Convert to
+  Invoice" is the one place it becomes a real, tracked sale. Search "quotation" (lowercase)
+  for the code, "Separate Bill" for what the user sees — same feature, two names. See
+  `understand.md` §12.
 - **This app is sales-only — Purchases was fully removed on 2026-09-14.** Don't reintroduce
   a `PurchaseBill` model, `/purchases/*` routes, or purchase pages/components without being
   explicitly asked; if you see a stray "purchase" reference the codebase-wide search missed,

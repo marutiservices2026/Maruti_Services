@@ -12,7 +12,57 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-17 (extended the loading-spinner fix to the two cases outside
+Last updated: 2026-09-18 (extended the invoice's Supplier's Ref. auto-default (its own
+sequence number, no leading zeros) to Separate Bills too — same logic, this time verified
+live end-to-end since it carries none of the gap-risk the original invoice version had. See
+§5. Also: declined a third "make it look like a real invoice" request —
+multi-copy reframed as "transporter/internal" instead of "recipient," same reasoning holds
+regardless of the label — offered Delivery Challan as the legitimate alternative if goods
+are genuinely moving on a non-sale basis. Separately agreed to remove the header's
+`(Not a Tax Invoice)` subtitle, since the substantive disclaimer stays intact in two other
+places on the page (footer Note, footer line) — not a reduction in honesty, just less
+repetition. See §12. Also: added checkbox multi-select + bulk delete to the Separate Bills
+list page (new `methods.js` `deleteMany` primitive, `POST /quotations/bulk-delete`), plus a
+per-row single delete for convenience; also fixed the actual cause of "print size is half
+not full A4" — two whole sections present on the invoice template (Tax Amount in words,
+signature block) were simply missing from this one since it was first built, both now
+added and visually verified. See §12. Also: added a genuine hard-delete for Separate Bills, distinct from the
+existing soft "Cancel" — safe in a way Invoice/Party/Product deletes deliberately aren't,
+since nothing references a Quotation by ObjectId and it has no gap-free-numbering
+requirement. While testing it, hit and finally root-caused a recurring class of bug from
+this session's own disposable test scripts: a `finally` block's cleanup ran unconditionally
+even on a run that crashed before creating anything, wiping out a just-applied counter fix.
+Real lesson, not just a patch: never blindly reset shared counter state in test cleanup —
+compute it from what's actually left, or avoid touching it at all. See §12. Also: declined a second request to make Separate Bill visually
+identical to a real tax invoice — same reasoning as before — but built the legitimate part:
+full invoice-matching header table (delivery/despatch/reference fields, all the way
+through model/validator/controller/form), and replaced the loud orange disclaimer banner
+with a small quiet subtitle, matching the real invoice's own copy-type styling. Verified via
+a direct HTML render + screenshot, not just "PDF didn't error." Also found and fixed a
+*second* instance of the exact same orphaned-test-data bug as below, from one more test run
+— root-caused this time to a real, generalizable bug in this session's own disposable test
+scripts (schema-less Mongoose models silently failing to cast ObjectId filters). See §12.
+Also: fixed a real "Download PDF" 500 on the user's live Separate Bills
+list — traced to 3 orphaned test quotations this session's own test cleanup missed, all now
+removed; also found and fixed a bigger side effect — testing's `convertToInvoice` calls had
+permanently consumed 3 real invoice numbers (`GST-0021`-`0023`) that then got deleted,
+leaving a gap — rolled the invoice counter back to close it before the user's next real
+invoice would have skipped straight to `GST-0024`. See §12. Also: renamed Quotations to "Separate Bill" for the user (cosmetic only
+— internal naming, routes, model, DB collection all stay "quotation"), removed the
+`validUntil` field entirely, and changed the printed number prefix from `QTN-####` to
+`SB-####` since that one IS user-visible; re-verified live (11/11 checks) after the rename.
+See §12. Also: added Quotations — a genuine pre-sale estimate document type,
+deliberately separate from Invoice (own model/nav item/numbering series, structurally
+excluded from every sales/GST report), with a "Convert to Invoice" action that's the one
+moment its numbers become a real, tracked sale. Built after declining a request to make
+invoices print for a customer but stay hidden from the software's own tracking — see new
+§12 for the full feature and the verification (23 backend checks + a live UI pass). Also:
+ran a full update/delete sweep across every resource — Company,
+Master, Party, Product, Invoice — through the real local API with a disposable user;
+21/21 checks passed, each verified by re-reading the data after the write, not just a 200.
+Found one real, unfixed inconsistency worth knowing about: `Master` hard-deletes despite
+`Product` referencing it by ObjectId, unlike `Party`/`Product`/`Invoice` which are
+deliberately soft-deleted for exactly that reason. See §10. Also: extended the loading-spinner fix to the two cases outside
 `DashboardLayout`'s reach — `/login`'s own lazy chunk and the very first app paint —
 `AppRoutes.jsx`'s outer `PageFallback` now matches: full-viewport, centered, same `Loader`
 component. Verified live on a fresh, throttled `/login` load. See §6. Also: fixed the whole app blanking to a bare corner spinner on every
@@ -374,6 +424,15 @@ per login). All schemas use `{ timestamps: true, strict: true }`.
     teens) — which would burn a real sequence number and leave a permanent gap. Next
     session/user should confirm this once by creating one real invoice and checking the
     printed PDF's Supplier's Ref. against its Invoice No.
+    - **Extended to Separate Bills, 2026-09-18**, at the user's explicit request ("just
+      like we write serial number into Supplier reference, can you do same here"). Same
+      exact logic in `quotation.controller.js`'s `create`: `supplierRef: req.body.supplierRef
+      || String(seq)` (`getNextDocumentNumber` already returns `seq` here too, just wasn't
+      being destructured before). This time verified live, end-to-end, through a real
+      disposable create — no permanent-gap risk like the invoice case had, since Separate
+      Bills don't carry a gap-free numbering requirement in the first place: `SB-0008` →
+      `supplierRef: "8"` by default, and a real create with an explicit `supplierRef:
+      "MY-CUSTOM-REF"` correctly left untouched rather than overridden.
 - **numberToWords.service.js** — Indian Lakh/Crore amount-in-words (see convention #11).
 - ~~**dynamicField.service.js**~~ — **removed 2026-09-15** — used to validate/merge
   `customFields` against a company's active `FieldConfig` entries; deleted along with the
@@ -2035,6 +2094,37 @@ coverage gap, not a bug: there's no way to test `requireRole('admin')` actually 
 non-admin, since `/auth/register` always creates an admin (by design) and there's no
 user-management endpoint to create an accountant-role account otherwise.
 
+**Full update/delete sweep, 2026-09-17** — complements the negative-testing sweep above with
+the positive path: every `update`/`remove`/`delete` controller in the app (Company, Master,
+Party, Product, Invoice — the app's complete update/delete surface, confirmed by grepping
+every controller for these three names first) exercised through the real running local API
+with a disposable throwaway user (created and deleted around the run, same pattern as the
+change-password test), not just checking for a `200` but verifying the change actually
+**persisted** (a follow-up read after each write) and, for deletes, that the record is
+actually gone from where it should be gone from. **21/21 checks passed.**
+- **Delete semantics vary by resource, and this is by design, not a bug** — worth knowing
+  before assuming "delete" always means the same thing here: `Party`/`Product` delete sets
+  `isActive: false` (referenced by ObjectId from historical invoices — a hard delete would
+  leave those pointing at nothing); `Invoice` delete sets `status: 'cancelled'` (its
+  `invoiceNo` already consumed a gap-free Counter sequence number); `Master` delete is a
+  genuine hard delete (`methods.deleteById`) — confirmed live: the deleted unit no longer
+  appeared even with `includeInactive: true`.
+- **One real inconsistency worth flagging, not fixed here since it wasn't what was asked**:
+  `Master` is hard-deleted despite `Product.unit`/`Product.gstRate` referencing `Master`
+  documents by ObjectId — the exact same "referenced by ObjectId from historical records"
+  situation that `Party`/`Product` are deliberately *soft*-deleted to avoid. Deleting a
+  `Master` entry still in use by an existing `Product` would leave that product's
+  unit/GST-rate reference dangling (same failure mode as the earlier "empty GST Rate
+  dropdown" bug, §6, but from a master being deleted out from under a product rather than
+  never having existed). Not reproduced or fixed — flagging for whoever picks this up next,
+  since it wasn't part of what was asked this time.
+- Test data cleanup: the disposable Party/Product/Invoice created for this sweep landed as
+  soft-deleted/cancelled records (correct, expected outcome of testing real delete
+  endpoints) — rather than leave inert `TMP`-prefixed documents sitting in the real local
+  database indefinitely, they were hard-removed directly afterward in a one-off cleanup
+  script (safe here specifically because nothing else in the database could have started
+  referencing brand-new records created and destroyed within the same few seconds).
+
 ---
 
 ## 11. Known, accepted local-only limitations (do not "fix" these without being asked)
@@ -2048,11 +2138,355 @@ user-management endpoint to create an accountant-role account otherwise.
 - ~~No git repository, so no commit history / blame to consult~~ — no longer true as of
   2026-09-16, see §9's dated note.
 - No automated test suite — verification is manual/live (section 10).
-- Deployment configs exist but have never actually been deployed anywhere.
+- ~~Deployment configs exist but have never actually been deployed anywhere~~ — no longer
+  true as of 2026-09-16/17: backend is live on Render (Docker runtime — see §9's PDF-500
+  saga for why), frontend is live on Vercel. Both real, both actively used.
 
 ---
 
-## 12. How to keep this file updated
+## 12. Quotations / "Separate Bills" (pre-sale estimates — added 2026-09-17)
+
+At the user's explicit request, framed initially as "generate a bill, print it, but don't
+track it in the software" — declined as described (that's the pattern of keeping a hidden
+second set of books to under-report sales, not something to build regardless of who
+suggested it) in favor of the legitimate version actually needed: a genuine **Quotation**
+document type, honest about what it is both on paper and in the data, that simply hasn't
+become a real sale yet.
+
+**User-facing name is "Separate Bill", not "Quotation"** — renamed the same day, at the
+user's request, purely cosmetically: every internal identifier (model name `Quotation`,
+`quotation.controller.js`, `/quotations/*` routes, `quotationNo`/`quotationDate` fields, the
+`documentTotals.service.js` internals, the DB collection) stays exactly as originally built;
+only what a person actually reads — page titles, button labels, toasts, the printed PDF's
+own title/labels — changed. Kept the internal names unchanged deliberately: renaming routes/
+model/collection too would have been a much larger, riskier change for zero user-visible
+benefit. The one exception, because it IS user-visible: the printed document number prefix
+changed from `QTN-####` to `SB-####` (see `invoiceNumber.service.js`'s `DEFAULT_PREFIX` map).
+**A `validUntil` field (originally part of this feature) was removed in the same pass**, at
+the user's request — model, validator, controller, form field, PDF line, all gone; confirmed
+via a live re-test that sending it anyway is simply ignored (not in the zod schema), not an
+error. If picking this feature back up and searching the codebase, search for "quotation"
+(lowercase, internal) to find the code, and "Separate Bill" (the label) to find what the
+user actually sees — they are the same feature under two different names, not two features.
+
+- **Deliberately a separate model/controller/nav item from Invoice, not a status flag on
+  it.** A `Quotation` is not a tax document: it never consumes the `GST-####` invoice
+  sequence, and it's structurally excluded from every sales/GST report (Sales Register, GST
+  Summary, Dashboard totals) simply by living in its own collection those reports never
+  query — not by a filter that could be gotten wrong, by construction. Nav item sits in the
+  sidebar between Invoices and Parties (now `Alt+3`, pushing Parties/Products/E-Way
+  Bills/Settings to `Alt+4..7` — this fully uses up the `Alt+1..7` range CLAUDE.md's
+  convention list already mentioned, which turned out to have been anticipating exactly
+  this).
+- **`Quotation.model.js`** — same header/items/tax-breakup shape as `Invoice.model.js`
+  (`quotationNo`, `financialYear`, `quotationDate`, `items`, `taxableValue`/`cgstRate`/etc.,
+  `hsnWiseBreakup`, `amountInWords`) but trimmed: no delivery/despatch/buyer's-order
+  metadata, no e-way bill fields, no `templateOverride`, no `validUntil` (removed same day —
+  see the naming note above). `status`: `'open' | 'cancelled' | 'converted'` — deliberately
+  no `'finalized'`, since a quotation has nothing to finalize; it's either still open,
+  cancelled, or converted into a real invoice. `convertedToInvoice` (ref `Invoice`) links to
+  the real invoice once that happens.
+- **Own numbering series, printed as `SB-####`, fully independent of `GST-####`.**
+  `invoiceNumber.service.js`'s `SERIES_KEY`/`DEFAULT_PREFIX` maps (already generic,
+  Counter-per-`company+key` — see that file's own comment about a vestigial `PUR-` series
+  from before Purchases was removed) got a second entry: `SERIES_KEY.quotation = 'QTN'`
+  (the internal Counter document's own key, e.g. `QTN-2026-27` — invisible to the user, left
+  as `QTN` since renaming it has zero user-visible effect) and `DEFAULT_PREFIX.quotation =
+  'SB'` (what's actually printed on the document — changed from the original `QTN` to match
+  the "Separate Bill" rename, since this one IS user-visible). Verified live that creating
+  these never touches the invoice counter, and that their own numbering continues correctly
+  across multiple creates (`SB-0001` then `SB-0002`).
+- **Shared totals logic extracted into a new `services/documentTotals.service.js`**
+  (`computeDocumentTotals`, `stripTransient` — previously `computeInvoiceTotals`/
+  `resolveItems`, private to `invoice.controller.js`) specifically so Quotation could reuse
+  the *exact* same product/GST-rate resolution logic Invoice uses, rather than risk a second,
+  slightly-different copy of "resolve a product-linked line item's GST rate" quietly
+  disagreeing with the original over time. `invoice.controller.js` was refactored to import
+  from this new service instead of defining its own copy — behavior-identical, verified via
+  the full update/delete sweep (§10) still passing 21/21 after the refactor.
+- **`quotation.controller.js`** — `create`, `list`, `detail`, `update`, `remove` (soft
+  delete, `status: 'cancelled'` — same reasoning as Invoice: `quotationNo` already consumed
+  a gap-free Counter sequence number), `downloadPdf`, and the one genuinely new operation:
+  **`convertToInvoice`**. A converted or cancelled quotation can't be edited or re-converted
+  (403/409, verified live). Routes: `/quotations/{create,list,detail,update,delete,convert,
+  pdf}`, all `authMiddleware`-gated, `delete` additionally `requireRole('admin')` (matching
+  Invoice/Party/Product's own delete gating).
+- **`convertToInvoice` is the one moment a quotation's numbers become a real, tracked
+  transaction.** Re-runs `computeDocumentTotals` on the quotation's buyer/items rather than
+  copying its stored totals verbatim — product rates or GST rates may have changed since the
+  quotation was made, and a real invoice must reflect current terms, not a stale estimate.
+  Creates a genuine `Invoice` document with its own real `GST-####` number (via the same
+  `getNextDocumentNumber('invoice', ...)` any normal invoice creation uses — indistinguishable
+  from one created directly), then marks the source quotation `converted` + links
+  `convertedToInvoice`. Wrapped in `methods.withTransaction` (currently a no-op locally per
+  the standing `TEMP-DEMO-PATCH` — see §11 — but structured correctly for when it isn't).
+- **PDF: a genuinely separate template, `templates/quotation/classic.template.html`** — a
+  near-copy of the pinned `templates/invoice/classic.template.html` for visual consistency,
+  but an independent file, not a shared partial, so nothing about this feature can ever put
+  the pinned invoice template (§2.15, §8) at risk. Differences: no multi-copy loop (a
+  quotation isn't a legal document requiring "Original for Recipient"/"Duplicate for
+  Transporter" copies — Invoice's PDF renders both on separate pages, Quotation's renders
+  once), title says "Separate Bill" (updated same day from "Quotation" — see the naming
+  note above; the field/file/route are still called `quotationNo`/`quotation.controller.js`/
+  `/quotations/pdf` internally) not "Tax Invoice", an explicit orange banner reading *"This
+  is a preliminary estimate only — not a tax invoice, and does not represent a completed
+  sale,"* tax lines labeled "Est. CGST"/"Est. SGST"/"Est. IGST" rather than bare
+  "CGST"/"SGST"/"IGST", and the footer note says "Computer Generated Separate Bill — Not a
+  Tax Invoice." **This disclaimer banner was deliberately kept, not dropped, through the
+  rename** — if anything it matters more now: "Separate Bill" reads more like a real bill to
+  an unsophisticated reader than "Quotation" did, so the explicit "not a tax invoice" label
+  doing real work to keep the document honest about what it is. The goal throughout: never
+  let the printed document itself be mistaken for a real tax invoice.
+  - **Round two of this same request, same day**: user pushed further — asked to make the
+    printed document "same to same" as the real invoice, which meant removing exactly the
+    three things above (see the reasoning again, unchanged: identical appearance + excluded
+    from GST reporting recreates the exact hidden-books pattern this feature exists to
+    avoid). **Declined that specific ask a second time, explicitly** — but agreed to and
+    built the legitimate part of it: (1) the header table was rebuilt to match
+    `classic.template.html`'s full 7-row structure exactly (Delivery Note, Mode of Payment,
+    Supplier's Ref., Other Reference(s), Buyer's Order No. + date, Despatch Document No. +
+    date, Despatched Through, Destination, Terms of Delivery — the complete real-invoice
+    reference-field set, not the original 2-row simplified version), with matching new
+    fields added to `Quotation.model.js`/`quotation.validator.js`/`quotation.controller.js`
+    and a new "Show delivery & reference details" toggle section in `QuotationForm.jsx`
+    (identical pattern to `InvoiceForm.jsx`'s own "More Fields" toggle — same 8 fields
+    exposed in the UI, matching what Invoice actually exposes, not the full model set); (2)
+    the loud orange `.estimate-banner` was replaced with a small `.doc-subtitle` —
+    `"(Not a Tax Invoice)"` in muted italic under the "Separate Bill" title, styled exactly
+    like the real invoice's own `(Original for Recipient)` copy-type subtitle — same
+    disclaimer, much quieter presentation. **What did NOT change, held firm through both
+    rounds**: title still says "Separate Bill," the small "Note" disclaimer paragraph at
+    the bottom of the page is untouched, tax lines still say "Est. CGST/SGST/IGST," and
+    there is still no multi-copy "Original for Recipient/Duplicate for Transporter" system
+    — a Separate Bill is always exactly one page. Verified live: a real disposable test
+    quotation with every new field filled in generated a valid PDF (confirmed `%PDF` magic
+    bytes, correct byte length); the actual compiled HTML was also rendered directly (via
+    Handlebars with the same helper set `pdf.service.js` registers, bypassing the PDF step)
+    and screenshotted for a full visual check — header table, subtitle placement, and page
+    fill all confirmed correct by eye, not just "didn't crash."
+- **Frontend**: `QuotationForm.jsx` deliberately reuses `InvoiceLineItems.jsx`,
+  `useInvoiceCalculations.js`, and `InvoicePreview.jsx` directly, unmodified — all three
+  were already fully generic (no invoice-specific naming baked in), confirmed by reading
+  them before building anything, so duplicating them would have been pure, unjustified
+  copy-paste. Now has the same delivery/despatch "More Fields" toggle section as
+  `InvoiceForm.jsx` (added same day as the header-table richness above); still no template
+  override, no validity window (removed same day as the rename). Bill date field is labeled
+  "Bill Date" on screen even though the underlying field/state variable is still
+  `quotationDate`.
+  `QuotationDetail.jsx` mirrors `InvoiceDetail.jsx` with one addition: a "Convert to
+  Invoice" button (only while `status: 'open'`, with a confirm dialog spelling out what it
+  actually does) and, once converted, a link straight to the resulting invoice.
+- **Verified end-to-end for real, twice** — not just read through:
+  1. **Backend**: a disposable throwaway user + party + product + masters, created and
+     fully deleted afterward (never touched real data), exercising the entire real HTTP API
+     — 23 checks, all passing: correct `QTN-####` numbering, correct tax computation,
+     list/detail/update working, a genuine PDF returned (`%PDF` magic bytes, real byte
+     length), confirmed **absent** from `/invoices/list` and not affecting
+     `/reports/sales-register`, then `convertToInvoice` producing a real `GST-####` invoice
+     that **does** correctly show up in `/invoices/list` afterward — proving the
+     estimate→real-sale transition actually works both directions (excluded before, included
+     after) — plus the edit/cancel/re-convert guards on an already-converted quotation.
+  2. **Frontend UI**: faked a logged-in session and mocked the relevant API responses (a
+     fake JWT can't pass real backend auth, and letting requests hit the real backend and
+     fail now correctly hard-redirects to `/login` per this same day's earlier fix — see the
+     Backspace-to-login saga — so mocking was necessary, not just convenient) to screenshot
+     the actual rendered Quotations list, the sidebar's new `Alt+3` entry, and the New
+     Quotation modal form without needing real local credentials. Caught and ruled out one
+     false alarm this way: navigating through `/` first crashed with a `Dashboard.jsx`
+     `TypeError` from incomplete mock data shaped for `/reports/*` — confirmed via a
+     temporary (immediately reverted) tweak to `App.jsx`'s `ErrorBoundary` to surface the
+     real error — genuinely unrelated to this feature; navigating straight to `/quotations`
+     avoided Dashboard's own data dependencies entirely and everything rendered correctly.
+- **Real incident, same day: "Download PDF" 500'd on the user's actual Separate Bills
+  list.** Root cause traced via the backend log (`grep`-ing for `pdf` found the real
+  `TypeError` with a stack trace and timestamp): three test quotations from this session's
+  own disposable-test-data testing (`QTN-0001`, `SB-0001`, `SB-0002`) were left behind in
+  the shared local database — their cleanup scripts deleted the temp *user* and temp
+  *party* that created/referenced them (hard deletes, appropriate for disposable test data)
+  but a bug in the cleanup logic itself missed deleting the *quotation documents* pointing
+  at that now-gone party. Confirmed genuinely orphaned, not real user data, two ways: their
+  `createdBy` pointed at a user that no longer exists, and their `buyer` pointed at a party
+  that no longer exists — real data created through the actual app can never end up in this
+  state, since Party deletion through the app is always soft (`isActive: false`), never a
+  hard delete. `quotation.controller.js`'s `downloadPdf` assumes (same as
+  `invoice.controller.js`'s always has) that a referenced buyer always resolves, since under
+  normal app usage that assumption is completely safe — `quotation.buyer.name` on a
+  `populate()` result that came back `null` is exactly what crashed. Fixed by removing the
+  three orphaned documents directly, not by adding a defensive null-check — the assumption
+  itself is correct for real usage, and adding an inconsistent one-off guard here (when
+  `invoice.controller.js` doesn't have the equivalent one either) would be treating a
+  test-data artifact as if it were a real, recurring code bug.
+  - **Bigger issue caught while cleaning this up**: one of the three (`SB-0001`) had been
+    converted during testing, which — correctly, by design — used the *real* invoice
+    counter (`convertToInvoice` deliberately isn't isolated from real numbering, since a
+    real conversion must produce a real, correctly-sequenced invoice). Deleting that test
+    invoice afterward left its number permanently consumed but unused. A full scan (every
+    Invoice/Party/Product/Quotation checked for a `createdBy` pointing at a since-deleted
+    user) found two more of these from earlier testing sessions the same day, for a total
+    of three phantom invoice numbers (`GST-0021`–`0023`) sitting on top of the real sequence
+    which actually stopped at `GST-0020`. **Rolled the `INV-2026-27` Counter's `seq` back
+    from `23` to `20`** to close this gap before the user's next real invoice would have
+    silently skipped straight to `GST-0024`. Safe specifically because this is a single-user
+    local dev environment with full visibility into the exact timeline — confirmed nothing
+    else could have raced in to claim `21`/`22`/`23` in between. **Explicitly did NOT touch**
+    a separate, older, pre-existing gap between `GST-0002` and `GST-0008` from earlier in
+    the week — real invoice numbers that were actually issued must never be renumbered
+    retroactively; only the counter's *forward-looking* position was corrected, and only
+    because the numbers it had reserved were never real to begin with.
+  - **Lesson for next time**: any test script that calls a real numbering-consuming action
+    (invoice/quotation creation, `convertToInvoice`) needs its cleanup double-checked against
+    the actual DB state afterward, not just trusted because the script printed "Cleaned up."
+    without erroring — a cleanup step can silently fail to match what it intended to delete
+    while everything after it in the same `finally` block still runs and reports success.
+  - **This happened again, same day, and the actual root cause of both instances turned out
+    to be the same specific bug.** Adding the header-fields test (below) needed one more
+    disposable test quotation; its cleanup line, `Quotation.deleteMany({ buyer: partyId })`,
+    printed no error and "Cleaned up." — but silently deleted nothing, leaving one more
+    orphan (`SB-0002`) sitting next to the user's real `SB-0001`. Root cause, found by
+    direct investigation rather than guessing: every one of these disposable test scripts
+    declares its own throwaway Mongoose model via `new mongoose.Schema({}, { strict: false
+    })` (deliberately schema-less, so the ad-hoc script doesn't need to import this app's
+    real model files) — but a schema-less model doesn't know `buyer` is an `ObjectId`, so it
+    doesn't cast a plain JS string `partyId` to one before querying. The filter silently
+    matched zero documents against a field genuinely stored as `ObjectId`, while every
+    surrounding step still succeeded and reported success, exactly as this section's
+    "Lesson for next time" above already predicted in the abstract — this is the concrete
+    case that lesson was actually about. Fixed the immediate damage (found `SB-0002` fully
+    orphaned — confirmed by directly reading the whole document: its `buyer` and
+    `createdBy` both point at nothing, whereas `SB-0001` was directly confirmed, field by
+    field, to be `Green Enterprise` / `demo@patelflexible.com` — real, untouched) and reset
+    `QTN-2026-27`'s counter to `seq: 1` so the user's next real Separate Bill correctly
+    becomes `SB-0002`. **The actual fix for the underlying bug**: any future disposable test
+    script that deletes by a foreign-key-style filter (`{ buyer: partyId }`,
+    `{ company: companyId }`, etc.) against one of these ad-hoc schema-less models must wrap
+    the value in `new mongoose.Types.ObjectId(...)` explicitly, or — safer still — delete by
+    the document's own `_id` (already captured from the create response in every one of
+    these scripts) instead of a foreign-key lookup at all.
+  - **A third incident, immediately after, from a DIFFERENT bug in the same family — the
+    real lesson finally landed here.** Fixed the counter to `seq: 1` (above), then ran a
+    disposable test for the new hard-delete feature (added same day, see below); that test
+    crashed on its very first network call (an unrelated transient `--watch`-server-restart
+    ECONNRESET, same as earlier incidents this week) *before creating anything* — but its
+    `finally` block still ran (JS guarantees this) and unconditionally executed
+    `Counter.deleteMany({ company, key: /^QTN-/ })` as part of "cleanup," wiping out the
+    `seq: 1` fix moments after making it, even though this run had nothing to clean up. The
+    very next real create attempt then collided with the real `SB-0001` (fresh counter →
+    `seq` starts at 1 again → `SB-0001` → duplicate key on the compound unique index,
+    surfaced to the client as a slightly misleading `409 Duplicate value for "company"`,
+    since Mongoose's cast-error formatter names only the first field of the compound index).
+    **The actual, general lesson, not just a one-off fix**: a cleanup step must never
+    unconditionally delete or reset *shared* state (a Counter, in particular) just because
+    it's sitting in a `finally` block — `finally` runs on every exit path including one
+    where nothing was created yet, so any cleanup there needs to be conditional on what that
+    specific run actually did, or better, avoid touching shared counters in test cleanup at
+    all. Re-fixed by computing the counter's correct value directly from what documents
+    actually remain (`seq = real quotation count`, not a hardcoded guess) rather than
+    blindly resetting again. The follow-up test for the delete feature itself was rewritten
+    with this lesson applied: it never touches the `Counter` collection in cleanup at all —
+    deletes the disposable quotations it creates *through the real hard-delete API itself*
+    within the test (so nothing needs a second cleanup pass), and accepts that this leaves a
+    small, harmless gap in the `SB-####` sequence (a real, deliberate consequence of
+    `hardDelete` existing at all — see below — not a bug).
+- **Genuine hard-delete added, 2026-09-18, at the user's explicit request** — distinct from
+  the existing `remove`/"Cancel Separate Bill" (soft, `status: 'cancelled'`, document stays).
+  `quotation.controller.js`'s new `hardDelete` (`POST /quotations/hard-delete`,
+  `requireRole('admin')` matching every other delete route) calls `methods.deleteById`
+  directly — a real removal. **Deliberately safe in a way Invoice/Party/Product hard-deletes
+  aren't**: those are all soft specifically because something else references them by
+  ObjectId (invoice line items, historical invoices) or because gap-free numbering is a
+  real GST compliance requirement — neither applies to a Quotation. `Invoice.model.js` has
+  no field referencing a source Quotation at all, so deleting a Quotation, converted or not,
+  structurally cannot cascade to or affect any Invoice — confirmed by reading the model,
+  not just assumed. Available on `QuotationDetail.jsx` as a "Delete" button next to "Cancel
+  Separate Bill," for any status including `converted` (the confirm dialog explicitly notes
+  the linked invoice is unaffected when deleting a converted one). Verified live: create →
+  hard-delete → `404` on both `/detail` and absence from `/list` (10/10 checks); a
+  cancel-then-hard-delete sequence also confirmed working; deleting an already-deleted id
+  correctly 404s rather than erroring oddly. The specific "delete a *converted* quotation,
+  confirm the resulting invoice survives" case was deliberately **not** re-verified live
+  this round (after two real incidents this session from tests that touched the invoice
+  counter) — that guarantee instead rests on the structural fact above (no back-reference
+  exists in the schema, so no code path could cascade), which is a stronger guarantee than
+  a single live test would have added anyway. UI change (`QuotationDetail.jsx`'s new
+  "Delete" button, `quotation.api.js`'s `hardDeleteQuotation`) is a small, low-risk JSX
+  addition following the exact same pattern as the already-proven "Cancel Separate Bill"
+  button; not separately screenshot-verified this round since the local browser-automation
+  toolchain was unavailable at the time (`Executable doesn't exist... Playwright was just
+  installed or updated`) — worth a quick visual check next session if picking this back up.
+  **Follow-up, same day**: the browser-automation toolchain issue above was fixed
+  (`npx playwright install chromium` — the local Chromium build had gone missing/stale, a
+  one-time environment thing unrelated to any code here), and the "Delete" button was
+  screenshot-verified after all — renders correctly, styled like the existing per-row
+  Delete buttons elsewhere in this app (e.g. `ManageMasters.jsx`).
+- **List-page checkbox multi-select + bulk delete, added 2026-09-18**, same day as the
+  single hard-delete above, at the user's follow-up request ("multiple select and such like
+  that to delete"). `backend/methods.js` gained a new `deleteMany` primitive (the first
+  bulk-write helper in that file — every existing one there is single-document); everything
+  else about *why* this is safe for Quotations specifically is identical to the single
+  hard-delete's reasoning just above, so `bulkHardDelete` in `quotation.controller.js`
+  reuses it directly rather than looping `hardDelete` N times. `POST /quotations/bulk-delete`
+  — body `{ ids: [...] }`, `requireRole('admin')` matching every other delete route.
+  Deliberately does **not** pre-check each id exists before deleting (unlike the single
+  `hardDelete`, which 404s on a missing id) — `deleteMany` silently ignores ids that don't
+  match, which is the right behavior for a bulk action where a checkbox's underlying row may
+  have already been removed by someone else since the list was loaded; erroring on that
+  would be a false failure, not a real one. `QuotationList.jsx`: a checkbox column (header
+  "select all *on this page*" — deliberately scoped to the current page's rows, not
+  "select every result across all pages," to avoid a surprising mass-delete from what looks
+  like a page-local action), a per-row "Delete" text-button (same styling as
+  `ManageMasters.jsx`'s row actions) for a quick single delete without needing to select
+  first, and a "Delete Selected (N)" button that only appears once at least one checkbox is
+  checked. Selection is cleared on every fresh `load()` (page change, filter change, or
+  after a delete) rather than persisted across those, so "N selected" never silently refers
+  to rows that are no longer on screen. Verified two ways: 8 real backend checks (create 3,
+  bulk-delete 2 of them, confirm those 2 are really gone from both `/detail` and `/list`
+  while the third, non-selected one is untouched) with the by-now-standard discipline of
+  cleaning up only by exact `_id` and never touching the `Counter` collection; and a live UI
+  pass confirming the checkboxes render, checking one correctly shows `"Delete Selected
+  (1)"` and marks that checkbox `[checked]` in the accessibility tree, not just visually.
+- **PDF layout: two sections that exist on the invoice template but were missing here,
+  added 2026-09-18** — root cause of the user's "print size is half not fully A4 as our
+  invoice is" report. The page's actual physical size was always correctly A4 (same
+  `@page { size: A4 }` as the invoice, same `renderPdf(..., { format: 'A4' })` call — both
+  templates share the exact same rendering pipeline), but the *content* was shorter than
+  the invoice's because two whole sections that fill real vertical space on the invoice
+  were simply never carried over when this template was first built: a second
+  `words-table` for "Tax Amount (in words)" (right after the HSN breakup table — the
+  invoice's own `taxAmountInWords` field was already being computed and passed to this
+  template's data all along, just never rendered anywhere), and the `.signature-block`
+  ("for {{seller.name}} / Authorised Signatory") inside the bank-details cell of the footer
+  table. Both added, matching the invoice's exact markup/CSS class names (`.signature-block`
+  itself had to be added to this template's own `<style>` block too — it was never defined
+  here since nothing used it). Verified by direct visual render (same Handlebars-compile-
+  and-screenshot approach as the header-table change above) — both new sections appear and
+  visibly close most of the gap versus the invoice's page fill — and by a real PDF
+  generation check (`%PDF` magic bytes, correct byte length) confirming the template change
+  didn't break rendering.
+- **Round three of the "make it look like a real invoice" ask, same day — declined again,
+  same reasoning, new angle.** User reframed the multi-copy request as "one for transporter,
+  one for internal use" instead of "Original for Recipient" — declined anyway: if a copy of
+  a Separate Bill genuinely travels with real goods to a real customer, it's functioning as
+  the transit document for a real, untracked sale regardless of which label is on it: the
+  label doesn't change what the copy is doing. Offered two legitimate alternatives instead
+  of just saying no: (1) internal record-keeping needs no second copy at all — the one PDF
+  already downloads and the bill stays in the app until deleted; (2) if goods are genuinely
+  moving on a non-sale basis (approval, job work), the correct real document for that is a
+  **Delivery Challan** — a distinct, legitimate document type this app doesn't have yet,
+  offered to build if that's the actual need. Not yet confirmed which (if either) applies.
+- **The `(Not a Tax Invoice)` header subtitle was removed, same day — this one WAS agreed
+  to, since it doesn't remove the substantive disclaimer, only a redundant repetition of
+  it.** The footer `.footer-info-table`'s "Note" paragraph (*"Prices, quantities and taxes
+  shown here are estimates and may change. This document does not constitute a tax invoice
+  and creates no payment obligation."*) and the page-footer's own line (*"Computer
+  Generated Separate Bill — Not a Tax Invoice"*) both stay untouched — the document is
+  still substantively honest about what it is in two other places, just not tripled up.
+  Removed the now-dead `.doc-subtitle` CSS rule along with the element. Verified by a
+  direct visual render (subtitle gone, both remaining disclaimers still present and
+  unchanged) and a real PDF generation check afterward.
+
+---
+
+## 13. How to keep this file updated
 
 **Every time you (an AI model working on this repo) make a change, before ending your turn:**
 

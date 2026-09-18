@@ -16,6 +16,10 @@ const InvoiceList = lazy(() => import('../pages/invoices/InvoiceList.jsx'));
 const CreateInvoice = lazy(() => import('../pages/invoices/CreateInvoice.jsx'));
 const EditInvoice = lazy(() => import('../pages/invoices/EditInvoice.jsx'));
 const InvoiceDetail = lazy(() => import('../pages/invoices/InvoiceDetail.jsx'));
+const QuotationList = lazy(() => import('../pages/quotations/QuotationList.jsx'));
+const CreateQuotation = lazy(() => import('../pages/quotations/CreateQuotation.jsx'));
+const EditQuotation = lazy(() => import('../pages/quotations/EditQuotation.jsx'));
+const QuotationDetail = lazy(() => import('../pages/quotations/QuotationDetail.jsx'));
 const EwayBillTracker = lazy(() => import('../pages/ewaybill/EwayBillTracker.jsx'));
 const CompanyProfile = lazy(() => import('../pages/settings/CompanyProfile.jsx'));
 const ManageMasters = lazy(() => import('../pages/settings/ManageMasters.jsx'));
@@ -61,6 +65,10 @@ export default function AppRoutes() {
             <Route path="/invoices/new" element={<CreateInvoice />} />
             <Route path="/invoices/:id/edit" element={<EditInvoice />} />
             <Route path="/invoices/:id" element={<InvoiceDetail />} />
+            <Route path="/quotations" element={<QuotationList />} />
+            <Route path="/quotations/new" element={<CreateQuotation />} />
+            <Route path="/quotations/:id/edit" element={<EditQuotation />} />
+            <Route path="/quotations/:id" element={<QuotationDetail />} />
             <Route path="/ewaybills" element={<EwayBillTracker />} />
             <Route path="/settings/company" element={<CompanyProfile />} />
             <Route path="/settings/masters" element={<ManageMasters />} />

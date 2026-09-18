@@ -4,8 +4,12 @@
 // same sequence, even under concurrent requests.
 import Counter from '../models/Counter.model.js';
 
-const SERIES_KEY = { invoice: 'INV' };
-const DEFAULT_PREFIX = { invoice: 'GST' };
+const SERIES_KEY = { invoice: 'INV', quotation: 'QTN' };
+// DEFAULT_PREFIX.quotation is 'SB' ("Separate Bill" — the user-facing name for this
+// document type, see understand.md §12) even though the internal series/model/route names
+// all stay 'quotation' — this is the one piece of that naming that's actually printed on
+// the document and shown to the user, so it's the one place the rename had to land for real.
+const DEFAULT_PREFIX = { invoice: 'GST', quotation: 'SB' };
 
 // Indian financial year runs April 1 – March 31. Returns e.g. "2026-27" for any date
 // between 2026-04-01 and 2027-03-31.
@@ -31,7 +35,7 @@ async function incrementCounter(companyId, key, defaultPrefix, session) {
  * "rare race condition despite the transaction" fallback).
  *
  * @param {string} companyId
- * @param {'invoice'} series
+ * @param {'invoice'|'quotation'} series
  * @param {Date} [date]
  * @param {import('mongoose').ClientSession} [session] — pass when called inside a
  *   transaction alongside the Invoice create (Section 9).

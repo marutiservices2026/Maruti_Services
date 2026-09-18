@@ -3,13 +3,10 @@
 import * as methods from '../methods.js';
 import Invoice from '../models/Invoice.model.js';
 import Company from '../models/Company.model.js';
-import Party from '../models/Party.model.js';
-import Product from '../models/Product.model.js';
-import Master from '../models/Master.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { computeGst } from '../services/gst.service.js';
+import { computeDocumentTotals, stripTransient } from '../services/documentTotals.service.js';
 import { getNextDocumentNumber } from '../services/invoiceNumber.service.js';
 import { amountToWords } from '../services/numberToWords.service.js';
 import { isEwayBillRequired } from '../services/ewaybillThreshold.service.js';
@@ -39,53 +36,6 @@ const FINANCIAL_FIELDS = [
   'hsnWiseBreakup',
 ];
 
-function round2(n) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
-
-// Resolves each incoming line item into its persisted shape, plus a transient _gstRate
-// used only for computeGst(). amount is always server-recomputed (quantity * rate) —
-// never trust client math for money. gstRate: for product-linked items, pulled from
-// that Product's Master:taxRate entry (ignoring any client-supplied gstRate for that
-// item); for manual/custom lines, the client must supply it directly.
-async function resolveItems(companyId, rawItems) {
-  const resolved = [];
-  for (const item of rawItems) {
-    let gstRate = item.gstRate;
-
-    if (item.product) {
-      const product = await methods.findOne(Product, { _id: item.product, company: companyId });
-      if (!product) throw ApiError.badRequest(`Product not found: ${item.product}`);
-      const taxRateMaster = await methods.findOne(Master, { _id: product.gstRate, company: companyId });
-      gstRate = Number(taxRateMaster?.value) || 0;
-    }
-
-    if (gstRate === undefined || gstRate === null) {
-      throw ApiError.badRequest(
-        `gstRate is required for line item "${item.description}" when no product is referenced.`
-      );
-    }
-
-    const amount = round2(item.quantity * item.rate);
-
-    resolved.push({
-      product: item.product,
-      description: item.description,
-      hsnSac: item.hsnSac,
-      quantity: item.quantity,
-      unit: item.unit,
-      rate: item.rate,
-      amount,
-      _gstRate: gstRate,
-    });
-  }
-  return resolved;
-}
-
-function stripTransient(items) {
-  return items.map(({ _gstRate, ...rest }) => rest); // eslint-disable-line no-unused-vars
-}
-
 // The reference Classic template shows one unit next to the total quantity (e.g.
 // "175.00 kg") — only meaningful when every line item shares the same unit.
 function commonUnitOf(items) {
@@ -102,32 +52,16 @@ function commonUnitOf(items) {
 // a bad value might get into invoiceNo in the future — this is the actual crash guard, not
 // a hypothetical one.
 function safeFilenamePart(value) {
-  return String(value || '').replace(/[\r\n"]/g, '').trim() || 'invoice';
-}
-
-async function computeInvoiceTotals(companyId, buyerId, items) {
-  const company = await methods.findOne(Company, { _id: companyId });
-  if (!company) throw ApiError.notFound('Company not found.');
-
-  const buyer = await methods.findOne(Party, { _id: buyerId, company: companyId });
-  if (!buyer) throw ApiError.badRequest('Buyer not found.');
-  if (buyer.type !== 'buyer' && buyer.type !== 'both') {
-    throw ApiError.badRequest('Selected party is not marked as a buyer.');
-  }
-
-  const resolvedItems = await resolveItems(companyId, items);
-  const gst = computeGst({
-    items: resolvedItems.map((i) => ({ hsnSac: i.hsnSac, amount: i.amount, gstRate: i._gstRate })),
-    sellerStateCode: company.stateCode,
-    buyerStateCode: buyer.stateCode,
-  });
-
-  return { resolvedItems, gst, totalQuantity: resolvedItems.reduce((sum, i) => sum + i.quantity, 0) };
+  return (
+    String(value || '')
+      .replace(/[\r\n"]/g, '')
+      .trim() || 'invoice'
+  );
 }
 
 // POST /invoices/create — runs gst.service + invoiceNumber.service (Section 7)
 export const create = asyncHandler(async (req, res) => {
-  const { resolvedItems, gst, totalQuantity } = await computeInvoiceTotals(
+  const { resolvedItems, gst, totalQuantity } = await computeDocumentTotals(
     req.user.company,
     req.body.buyer,
     req.body.items
@@ -203,7 +137,8 @@ export const list = asyncHandler(async (req, res) => {
   // Matches the same "search by name" pattern party.controller.js/product.controller.js
   // use — invoiceNo is the one thing a user reliably knows when hunting for an invoice on
   // a list with no other lookup (Invoices had no search at all before this).
-  if (search) filter.invoiceNo = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  if (search)
+    filter.invoiceNo = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
   if (from || to) {
     filter.invoiceDate = {};
     if (from) filter.invoiceDate.$gte = new Date(from);
@@ -337,7 +272,9 @@ export const update = asyncHandler(async (req, res) => {
     const attemptedKeys = Object.keys(fields).concat(items ? ['items'] : []);
     const disallowed = attemptedKeys.filter((k) => FINANCIAL_FIELDS.includes(k));
     if (disallowed.length > 0) {
-      throw ApiError.forbidden(`Finalized invoices are immutable. Cannot change: ${disallowed.join(', ')}.`);
+      throw ApiError.forbidden(
+        `Finalized invoices are immutable. Cannot change: ${disallowed.join(', ')}.`
+      );
     }
     if (fields.status === 'draft') {
       throw ApiError.forbidden('A finalized invoice cannot be reverted to draft.');
@@ -353,7 +290,7 @@ export const update = asyncHandler(async (req, res) => {
 
   if (items) {
     const buyerId = fields.buyer || existing.buyer;
-    const { resolvedItems, gst, totalQuantity } = await computeInvoiceTotals(
+    const { resolvedItems, gst, totalQuantity } = await computeDocumentTotals(
       req.user.company,
       buyerId,
       items

@@ -7,6 +7,13 @@ import { NavLink } from 'react-router-dom';
 export const SIDEBAR_LINKS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/invoices', label: 'Invoices' },
+  // Shown to the user as "Separate Bills" (the label, changed 2026-09-17 at the user's
+  // request) — the route/internal naming stays "quotations" throughout the codebase, since
+  // that's invisible to the user; only the displayed text changed. Deliberately its own
+  // top-level nav item, not a tab/filter under Invoices — see Quotation.model.js's header
+  // comment: it's not a tax document and isn't part of the invoice sequence/reports at
+  // all, so it shouldn't look like a sub-view of Invoices either.
+  { to: '/quotations', label: 'Separate Bills' },
   { to: '/parties', label: 'Parties' },
   { to: '/products', label: 'Products' },
   { to: '/ewaybills', label: 'E-Way Bills' },

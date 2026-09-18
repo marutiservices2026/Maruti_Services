@@ -17,6 +17,8 @@ import * as productController from './controllers/product.controller.js';
 import * as productValidator from './validators/product.validator.js';
 import * as invoiceController from './controllers/invoice.controller.js';
 import * as invoiceValidator from './validators/invoice.validator.js';
+import * as quotationController from './controllers/quotation.controller.js';
+import * as quotationValidator from './validators/quotation.validator.js';
 import * as companyController from './controllers/company.controller.js';
 import * as templateController from './controllers/template.controller.js';
 import * as ewaybillController from './controllers/ewaybill.controller.js';
@@ -90,7 +92,12 @@ router.post(
 );
 
 // parties
-router.post('/parties/list', authMiddleware, validate(partyValidator.listPartySchema), partyController.list);
+router.post(
+  '/parties/list',
+  authMiddleware,
+  validate(partyValidator.listPartySchema),
+  partyController.list
+);
 router.post(
   '/parties/create',
   authMiddleware,
@@ -171,7 +178,72 @@ router.post(
   invoiceController.remove
 );
 
-router.post('/invoices/pdf', authMiddleware, validate(invoiceValidator.idSchema), invoiceController.downloadPdf);
+router.post(
+  '/invoices/pdf',
+  authMiddleware,
+  validate(invoiceValidator.idSchema),
+  invoiceController.downloadPdf
+);
+
+// quotations (pre-sale estimates — Section: added 2026-09-17). Deliberately separate from
+// /invoices/* — see quotation.controller.js's header comment.
+router.post(
+  '/quotations/create',
+  authMiddleware,
+  validate(quotationValidator.createQuotationSchema),
+  quotationController.create
+);
+router.post(
+  '/quotations/list',
+  authMiddleware,
+  validate(quotationValidator.listQuotationSchema),
+  quotationController.list
+);
+router.post(
+  '/quotations/detail',
+  authMiddleware,
+  validate(quotationValidator.idSchema),
+  quotationController.detail
+);
+router.post(
+  '/quotations/update',
+  authMiddleware,
+  validate(quotationValidator.updateQuotationSchema),
+  quotationController.update
+);
+router.post(
+  '/quotations/delete',
+  authMiddleware,
+  requireRole('admin'),
+  validate(quotationValidator.idSchema),
+  quotationController.remove
+);
+router.post(
+  '/quotations/hard-delete',
+  authMiddleware,
+  requireRole('admin'),
+  validate(quotationValidator.idSchema),
+  quotationController.hardDelete
+);
+router.post(
+  '/quotations/bulk-delete',
+  authMiddleware,
+  requireRole('admin'),
+  validate(quotationValidator.bulkIdsSchema),
+  quotationController.bulkHardDelete
+);
+router.post(
+  '/quotations/convert',
+  authMiddleware,
+  validate(quotationValidator.idSchema),
+  quotationController.convertToInvoice
+);
+router.post(
+  '/quotations/pdf',
+  authMiddleware,
+  validate(quotationValidator.idSchema),
+  quotationController.downloadPdf
+);
 
 // company profile + template selection (Section 16)
 router.post('/companies/detail', authMiddleware, companyController.detail);
