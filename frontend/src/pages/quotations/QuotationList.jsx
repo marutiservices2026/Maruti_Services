@@ -3,8 +3,9 @@
 // (quotationNo, /quotations/* routes, etc.) stays as-is throughout, only user-facing text
 // changed. See Sidebar.jsx's comment for the same note.
 // Checkbox multi-select + bulk delete added 2026-09-18, alongside a per-row single delete —
-// both call the genuine hard-delete added the same day (see QuotationDetail.jsx / this
-// file's own handleBulkDelete for why that's safe for this document type specifically).
+// both call the soft-delete added the same day (started as a real hard delete, changed to
+// soft within hours at the user's follow-up request — see quotation.controller.js's
+// softDelete for the full history).
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as quotationApi from '../../api/quotation.api.js';
@@ -77,14 +78,16 @@ export default function QuotationList() {
     else setSelectedIds(new Set(result.data.map((q) => q._id)));
   };
 
+  // Soft delete (see quotation.controller.js's softDelete) — removes it from this list,
+  // but the record stays retrievable if the data is needed later.
   const handleRowDelete = async (q) => {
     const ok = await confirmDialog({
       title: 'Delete separate bill',
-      message: `Permanently delete ${q.quotationNo}? This cannot be undone.`,
-      confirmLabel: 'Delete Permanently',
+      message: `Delete ${q.quotationNo}?`,
+      confirmLabel: 'Delete',
     });
     if (!ok) return;
-    await quotationApi.hardDeleteQuotation(q._id);
+    await quotationApi.softDeleteQuotation(q._id);
     toast.success('Separate bill deleted.');
     load();
   };
@@ -93,13 +96,13 @@ export default function QuotationList() {
     const count = selectedIds.size;
     const ok = await confirmDialog({
       title: 'Delete separate bills',
-      message: `Permanently delete ${count} selected separate bill${count === 1 ? '' : 's'}? This cannot be undone.`,
-      confirmLabel: 'Delete Permanently',
+      message: `Delete ${count} selected separate bill${count === 1 ? '' : 's'}? They'll be removed from your list, but the data is kept and can still be retrieved if needed later.`,
+      confirmLabel: 'Delete',
     });
     if (!ok) return;
     setBulkDeleting(true);
     try {
-      await quotationApi.bulkDeleteQuotations([...selectedIds]);
+      await quotationApi.bulkSoftDeleteQuotations([...selectedIds]);
       toast.success(`${count} separate bill${count === 1 ? '' : 's'} deleted.`);
       setPage(1);
       load();

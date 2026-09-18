@@ -83,23 +83,24 @@ export default function QuotationDetail() {
     load();
   };
 
-  // Genuinely permanent — distinct from "Cancel" above, which only marks the status and
-  // keeps it around. Safe to offer regardless of status: unlike Invoice, a Separate Bill
-  // isn't a tax document, so there's no gap-free-numbering reason to keep a deleted one's
-  // slot; and if it was already converted, deleting it here never touches the real invoice
-  // that resulted from it (that document is fully independent).
-  const deleteForever = async () => {
+  // A soft delete (see quotation.controller.js's softDelete) — distinct from "Cancel"
+  // above, which only marks the status and stays visible in the list. This one removes it
+  // from the list entirely, but the record itself isn't destroyed: it stays fully
+  // retrievable if someone needs the data later. Safe to offer regardless of status: if it
+  // was already converted, deleting it here never touches the real invoice that resulted
+  // from it (that document is fully independent).
+  const deleteBill = async () => {
     const convertedNote =
       quotation.status === 'converted'
         ? ' It has already been converted to an invoice — deleting it here will NOT delete or affect that invoice.'
         : '';
     const ok = await confirmDialog({
-      title: 'Delete separate bill permanently',
-      message: `Permanently delete ${quotation.quotationNo}? This cannot be undone.${convertedNote}`,
-      confirmLabel: 'Delete Permanently',
+      title: 'Delete separate bill',
+      message: `Delete ${quotation.quotationNo}? It will be removed from your list, but the data is kept and can still be retrieved if needed later.${convertedNote}`,
+      confirmLabel: 'Delete',
     });
     if (!ok) return;
-    await quotationApi.hardDeleteQuotation(id);
+    await quotationApi.softDeleteQuotation(id);
     toast.success('Separate bill deleted.');
     navigate('/quotations');
   };
@@ -130,7 +131,7 @@ export default function QuotationDetail() {
               Cancel Separate Bill
             </Button>
           )}
-          <Button variant="danger" onClick={deleteForever}>
+          <Button variant="danger" onClick={deleteBill}>
             Delete
           </Button>
           <Button variant="secondary" onClick={() => navigate('/quotations')}>

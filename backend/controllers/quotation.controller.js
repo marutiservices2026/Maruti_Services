@@ -86,7 +86,9 @@ export const create = asyncHandler(async (req, res) => {
 // POST /quotations/list — body: { page, limit, from, to, party, status, search }
 export const list = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, from, to, party, status, search } = req.body;
-  const filter = { company: req.user.company };
+  // deletedAt: null matches both an explicit null and a missing field, so this also
+  // correctly excludes nothing for documents that predate this field entirely.
+  const filter = { company: req.user.company, deletedAt: null };
   if (party) filter.buyer = party;
   if (status) filter.status = status;
   if (search)
@@ -104,7 +106,9 @@ export const list = asyncHandler(async (req, res) => {
   return new ApiResponse(200, result).send(res);
 });
 
-// POST /quotations/detail — body: { id }
+// POST /quotations/detail — body: { id }. Deliberately does NOT filter out a soft-deleted
+// (`deletedAt` set) document — staying retrievable by direct id lookup even after "deletion"
+// is the entire point of the soft-delete below, not an oversight.
 export const detail = asyncHandler(async (req, res) => {
   const quotation = await methods.findOne(
     Quotation,
@@ -184,41 +188,48 @@ export const remove = asyncHandler(async (req, res) => {
   return new ApiResponse(200, updated, 'Separate bill cancelled.').send(res);
 });
 
-// POST /quotations/hard-delete — body: { id }. A genuine, permanent delete — added
-// 2026-09-18 at the user's request, distinct from `remove` above (soft cancel). Safe in a
-// way Invoice/Party/Product deletes deliberately aren't: a Quotation isn't a tax document,
-// so there's no gap-free-numbering or audit-trail requirement forcing it to stick around
-// once gone. Does NOT touch a linked Invoice if this one was already converted — that
-// document is fully independent (Invoice has no reference back to its source quotation),
-// so deleting the source record here can never affect real, tracked sales data.
-export const hardDelete = asyncHandler(async (req, res) => {
+// POST /quotations/soft-delete — body: { id }. Named accurately as of 2026-09-18 — this
+// started the same day as a genuine hard delete (`methods.deleteById`), then was changed
+// within hours to a real soft delete (`deletedAt`) at the user's explicit follow-up request
+// ("on demand of data we can give them") — a real, reasonable business/audit-retention need
+// distinct from `remove` above's `status: 'cancelled'` (see Quotation.model.js's
+// `deletedAt` field comment for the full distinction). Renamed from `hardDelete`/
+// `/quotations/hard-delete` at the same time specifically because a function claiming to
+// hard-delete while actually soft-deleting is exactly the kind of misleading name this
+// codebase's own conventions elsewhere try to avoid — unlike the "quotation" internal
+// naming kept stable through the "Separate Bill" rename (a cosmetic label change), this is
+// a change in actual delete semantics, which the name has to reflect. Still safe the same
+// way the original hard delete was: doesn't touch a linked Invoice if this one was already
+// converted (no back-reference exists).
+export const softDelete = asyncHandler(async (req, res) => {
   const existing = await methods.findOne(Quotation, {
     _id: req.body.id,
     company: req.user.company,
   });
   if (!existing) throw ApiError.notFound('Separate bill not found.');
 
-  await methods.deleteById(Quotation, req.body.id);
+  await methods.updateById(Quotation, req.body.id, { deletedAt: new Date() });
   return new ApiResponse(200, null, 'Separate bill deleted.').send(res);
 });
 
-// POST /quotations/bulk-delete — body: { ids: [...] }. List-page multi-select delete,
-// added 2026-09-18 alongside the single hardDelete above — same operation, applied to many
-// at once via a single deleteMany rather than the frontend looping N individual requests.
+// POST /quotations/bulk-soft-delete — body: { ids: [...] }. List-page multi-select delete,
+// added 2026-09-18 alongside the single softDelete above — same operation, applied to many
+// at once via a single updateMany rather than the frontend looping N individual requests.
 // company: req.user.company in the filter is the only scoping guard (no per-id existence
-// check first, unlike hardDelete) — deliberate: deleteMany silently ignores ids that don't
+// check first, unlike softDelete) — deliberate: updateMany silently skips ids that don't
 // match rather than erroring, which is the right behavior for a bulk action where a
 // checkbox's underlying row may have already been removed by someone else since the list
 // was loaded.
-export const bulkHardDelete = asyncHandler(async (req, res) => {
-  const result = await methods.deleteMany(Quotation, {
-    _id: { $in: req.body.ids },
-    company: req.user.company,
-  });
+export const bulkSoftDelete = asyncHandler(async (req, res) => {
+  const result = await methods.updateMany(
+    Quotation,
+    { _id: { $in: req.body.ids }, company: req.user.company },
+    { deletedAt: new Date() }
+  );
   return new ApiResponse(
     200,
-    { deletedCount: result.deletedCount },
-    `${result.deletedCount} separate bill(s) deleted.`
+    { deletedCount: result.modifiedCount },
+    `${result.modifiedCount} separate bill(s) deleted.`
   ).send(res);
 });
 

@@ -82,6 +82,16 @@ const quotationSchema = new mongoose.Schema(
     status: { type: String, enum: ['open', 'cancelled', 'converted'], default: 'open' },
     convertedToInvoice: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
 
+    // Separate from `status` above on purpose — added 2026-09-18, replacing what was
+    // originally a genuine hard delete. `status: 'cancelled'` still means what it always
+    // did ("this estimate didn't go anywhere, but it's still a normal visible record").
+    // `deletedAt` means "removed from the list on demand, but the data itself must stay
+    // retrievable" (the user's explicit ask: "so that on demand of data we can give
+    // them") — a real business/audit requirement distinct from cancellation. `null` (the
+    // default) means not deleted; `list` filters these out, `detail`/`pdf` deliberately do
+    // NOT, since staying retrievable by direct lookup is the entire point.
+    deletedAt: { type: Date, default: null },
+
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true, strict: true }

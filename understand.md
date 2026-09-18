@@ -12,7 +12,12 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-18 (extended the invoice's Supplier's Ref. auto-default (its own
+Last updated: 2026-09-18 (changed Separate Bill delete from hard to soft within hours of
+shipping it, at the user's follow-up request ("on demand of data we can give them") — hidden
+from the list, but still fully retrievable by direct lookup. Renamed the controller
+functions/routes to match (a genuine `hardDelete` → `softDelete` rename, not just relabeling)
+since a misleadingly-named delete function is a real trap. Verified live, 9/9 checks. See
+§12. Also: extended the invoice's Supplier's Ref. auto-default (its own
 sequence number, no leading zeros) to Separate Bills too — same logic, this time verified
 live end-to-end since it carries none of the gap-risk the original invoice version had. See
 §5. Also: declined a third "make it look like a real invoice" request —
@@ -2444,6 +2449,32 @@ user actually sees — they are the same feature under two different names, not 
   cleaning up only by exact `_id` and never touching the `Counter` collection; and a live UI
   pass confirming the checkboxes render, checking one correctly shows `"Delete Selected
   (1)"` and marks that checkbox `[checked]` in the accessibility tree, not just visually.
+  - **Changed from hard to soft delete within hours, same day**, at the user's explicit
+    follow-up ("on demand of data we can give them") — a real, reasonable business/audit-
+    retention need, distinct from `remove`'s `status: 'cancelled'` (which stays visible in
+    the list; this one hides but retains). `Quotation.model.js` gained a `deletedAt: {
+    type: Date, default: null }` field. `methods.js` gained a new `updateMany` primitive
+    (parallel to the `deleteMany` added for the original hard-delete version — see the
+    counter-mutation-lesson note above, which is the same file this touches). `list`'s
+    filter gained `deletedAt: null` (matches both explicit `null` and a missing field, so
+    correctly includes every pre-existing document too, no migration needed); `detail` and
+    `downloadPdf` deliberately do **not** filter on it — staying retrievable by direct id
+    lookup after "deletion" is the entire point. **Renamed the controller functions and
+    routes to match** (`hardDelete`/`/quotations/hard-delete` → `softDelete`/
+    `/quotations/soft-delete`; `bulkHardDelete`/`/quotations/bulk-delete` →
+    `bulkSoftDelete`/`/quotations/bulk-soft-delete`) — a case where renaming *was* worth
+    the churn, unlike the "quotation" internal-naming-stays-through-the-"Separate-Bill"-
+    rename precedent elsewhere in this section: that was a cosmetic label change, this is
+    an actual change in delete semantics, and a function called `hardDelete` that quietly
+    soft-deletes is a real trap for whoever reads this code next. Frontend confirm-dialog
+    wording updated to match too (no more "Permanently delete... cannot be undone" —
+    replaced with "will be removed from your list, but the data is kept and can still be
+    retrieved if needed later"). Verified live, 9/9 checks: soft-deleted item hidden from
+    `/list` but `/detail` and `/pdf` both still return it correctly; the old
+    `/quotations/hard-delete` route confirmed genuinely gone (`404`, not just unused); the
+    bulk version verified the same way for two items at once. Cleanup for this test again
+    followed the by-now-standing discipline: exact `_id` deletes only, zero `Counter`
+    collection writes.
 - **PDF layout: two sections that exist on the invoice template but were missing here,
   added 2026-09-18** — root cause of the user's "print size is half not fully A4 as our
   invoice is" report. The page's actual physical size was always correctly A4 (same

@@ -219,18 +219,18 @@ router.post(
   quotationController.remove
 );
 router.post(
-  '/quotations/hard-delete',
+  '/quotations/soft-delete',
   authMiddleware,
   requireRole('admin'),
   validate(quotationValidator.idSchema),
-  quotationController.hardDelete
+  quotationController.softDelete
 );
 router.post(
-  '/quotations/bulk-delete',
+  '/quotations/bulk-soft-delete',
   authMiddleware,
   requireRole('admin'),
   validate(quotationValidator.bulkIdsSchema),
-  quotationController.bulkHardDelete
+  quotationController.bulkSoftDelete
 );
 router.post(
   '/quotations/convert',

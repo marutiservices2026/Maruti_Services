@@ -66,6 +66,9 @@ export const deleteById = (Model, id, options = {}) =>
 export const deleteMany = (Model, filter, options = {}) =>
   Model.deleteMany(filter, { session: options.session });
 
+export const updateMany = (Model, filter, data, options = {}) =>
+  Model.updateMany(filter, data, { session: options.session });
+
 export const paginate = async (Model, filter = {}, page = 1, limit = 20, options = {}) => {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || 20)); // cap so a client can't force an unbounded scan
