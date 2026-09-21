@@ -201,7 +201,10 @@ one of these in a new feature is very likely a mistake, not a legitimate excepti
 
 1. **Every backend route is POST — no GET/PUT/PATCH/DELETE, with exactly one exception:
    `GET /health` (added 2026-09-16, registered directly in `index.js`, not `router.js` —
-   see its own comment there for why, and §9 for the keep-alive pinger it exists for).**
+   see its own comment there for why, and §9 for the keep-alive pinger it exists for). Since
+   2026-09-21 the same handler also answers `GET`/`HEAD /` — Render probes `HEAD /` on every
+   deploy and it was logging a red "Route not found: /" 404 each time; it is the same
+   one-handler exception, not a new route family.**
    Every other route, including this one's neighbors, stays POST — filters, IDs, and
    pagination that would normally be query params or path params travel in the JSON request
    body instead. See `backend/router.js` line 1's comment. This applies even to "detail" and
@@ -1813,6 +1816,11 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
        (`"Loading invoices…"`, `"Loading company profile…"`, etc.). Nothing here needed
        fixing; this was never actually broken, only the route-chunk-level Suspense
        boundaries were.
+- **`GET`/`HEAD /` now returns 200 `{status:'ok'}` (2026-09-21).** `index.js` registers
+  `app.get(['/', '/health'], …)`. Before this, Render's post-deploy `HEAD /` probe and any
+  browser/crawler `GET /` hit the ApiError 404 handler and logged a red error on every deploy.
+  Verified locally: `GET /`, `HEAD /`, `/health` → 200; `GET /api/v1/invoices/list` and
+  `GET /nope` still 404, so the POST-only rule is intact everywhere else.
 - **In-process self-ping keep-alive scheduler, added 2026-09-21.** `startKeepAliveScheduler()`
   in `backend/index.js` (called from the `app.listen` callback) `fetch`es
   `${RENDER_EXTERNAL_URL}/health` every 14 minutes via `setInterval` (30s abort timeout;

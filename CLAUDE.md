@@ -21,7 +21,8 @@ section following the existing structure and note the date. Full protocol is in
 ## A few conventions worth knowing before you touch anything
 
 - Every backend API route is **POST-only, with exactly one exception: `GET /health`**
-  (added 2026-09-16, for Render's own health monitoring and a keep-alive pinger — see
+  (added 2026-09-16, for Render's own health monitoring and a keep-alive pinger; the same
+  handler also answers `GET`/`HEAD /` since 2026-09-21 to silence Render's deploy probe — see
   `understand.md` §2 and §9). Don't add another GET/PUT/PATCH/DELETE route without being
   explicitly asked.
 - Controllers never touch Mongoose models directly — always go through `backend/methods.js`

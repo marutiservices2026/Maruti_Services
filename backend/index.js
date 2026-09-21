@@ -39,7 +39,12 @@ app.use(cookieParser());
 // need to know this API's POST-only convention just to ask "are you up." Deliberately does
 // NOT touch the database — the whole point is confirming the Node process itself is alive
 // and responding, so a transient DB hiccup shouldn't make this report unhealthy.
-app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+//
+// `/` answers the same way (added 2026-09-21, at the user's request): Render itself probes
+// `HEAD /` after every deploy and on port checks, plus browsers and crawlers hit `GET /`, and
+// each one used to fall through to the ApiError 404 and land in the logs as a red error on
+// every deploy. Express serves HEAD automatically for a `get` route.
+app.get(['/', '/health'], (_req, res) => res.status(200).json({ status: 'ok' }));
 
 app.use('/api/v1', router);
 
