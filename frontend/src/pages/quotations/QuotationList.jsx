@@ -43,6 +43,34 @@ export default function QuotationList() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [printingId, setPrintingId] = useState(null);
+
+  const handlePrint = async (qId) => {
+    setPrintingId(qId);
+    toast.success('Preparing print...');
+    try {
+      const pdfRes = await quotationApi.downloadQuotationPdf(qId);
+      const url = URL.createObjectURL(pdfRes.data);
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      iframe.onload = () => {
+        setTimeout(() => {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+            URL.revokeObjectURL(url);
+          }, 300000); // 5 minutes cleanup
+        }, 500);
+      };
+    } catch {
+      // toast already shown by interceptor
+    } finally {
+      setPrintingId(null);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -204,7 +232,11 @@ export default function QuotationList() {
                         aria-label={`Select ${q.quotationNo}`}
                       />
                     </td>
-                    <td>{q.quotationNo}</td>
+                    <td>
+                      <Link to={`/quotations/${q._id}`} style={{ fontWeight: 600 }}>
+                        {q.quotationNo}
+                      </Link>
+                    </td>
                     <td>{formatDate(q.quotationDate)}</td>
                     <td>{q.buyer?.name}</td>
                     <td className="num">{formatCurrency(q.totalAmount)}</td>
@@ -212,9 +244,13 @@ export default function QuotationList() {
                       <span className={`badge ${STATUS_BADGE[q.status]}`}>{q.status}</span>
                     </td>
                     <td className="row-actions">
-                      <Link className="btn btn-text" to={`/quotations/${q._id}`}>
-                        View
-                      </Link>
+                      <button 
+                        className="btn btn-text" 
+                        disabled={printingId === q._id}
+                        onClick={() => handlePrint(q._id)}
+                      >
+                        {printingId === q._id ? '...' : 'Print'}
+                      </button>
                       <button
                         className="btn btn-text"
                         style={{ color: 'var(--color-stamp-red)' }}

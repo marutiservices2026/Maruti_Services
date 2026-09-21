@@ -124,8 +124,8 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
   const buyer = parties.find((p) => p._id === buyerId);
   const totals = useInvoiceCalculations(items, company?.stateCode, buyer?.stateCode);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (e, shouldPrint = true) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (submittingRef.current) return;
     if (!buyerId) {
       toast.error('Select a buyer.');
@@ -156,8 +156,31 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
         ? await invoiceApi.updateInvoice({ id, ...payload })
         : await invoiceApi.createInvoice(payload);
       toast.success(isEdit ? 'Invoice updated.' : 'Invoice created.');
-      if (onSuccess) onSuccess(res.data.data);
-      else navigate(`/invoices/${res.data.data._id}`);
+      
+      const savedInvoice = res.data.data;
+
+      if (shouldPrint) {
+        toast.success('Preparing print...');
+        const pdfRes = await invoiceApi.downloadInvoicePdf(savedInvoice._id);
+        const url = URL.createObjectURL(pdfRes.data);
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        iframe.onload = () => {
+          setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            setTimeout(() => {
+              document.body.removeChild(iframe);
+              URL.revokeObjectURL(url);
+            }, 300000); // 5 minutes cleanup
+          }, 500);
+        };
+      }
+
+      if (onSuccess) onSuccess(savedInvoice);
+      else navigate(`/invoices/${savedInvoice._id}`);
     } catch {
       // toast already shown by the axios interceptor
     } finally {
@@ -343,7 +366,7 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
 
       <div className="row" style={{ marginTop: 20 }}>
         <Button type="submit" disabled={submitting}>
-          {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Invoice'}
+          {submitting ? 'Saving…' : isEdit ? 'Save & Print' : 'Create & Print'}
         </Button>
         <Button variant="secondary" type="button" onClick={handleCancel}>
           Cancel

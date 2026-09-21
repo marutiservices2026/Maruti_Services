@@ -12,6 +12,8 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
+Last updated: 2026-09-21 (increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
+
 Last updated: 2026-09-18 (changed Separate Bill delete from hard to soft within hours of
 shipping it, at the user's follow-up request ("on demand of data we can give them") — hidden
 from the list, but still fully retrievable by direct lookup. Renamed the controller
