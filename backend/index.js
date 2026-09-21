@@ -50,6 +50,39 @@ app.use((req, res, next) => next(ApiError.notFound(`Route not found: ${req.origi
 // Must be mounted last — Express identifies error middleware by its 4-argument signature.
 app.use(errorMiddleware);
 
+// Self-ping scheduler — keeps Render's free plan from auto-sleeping the service after 15
+// minutes without inbound traffic. Pings this service's own public URL (not localhost —
+// only a request that comes in through Render's router counts as traffic) every 14 minutes,
+// one minute inside the 15-minute idle cutoff. Render sets RENDER_EXTERNAL_URL automatically
+// on every web service, so there is nothing to configure; when it's absent (local dev) the
+// scheduler simply doesn't start. Limitation: this can only PREVENT sleep — if the service is
+// already asleep, this timer isn't running either, so it can't wake itself. A first request
+// (or an external pinger like cron-job.org) is still what wakes a cold instance.
+const KEEP_ALIVE_INTERVAL_MS = 14 * 60 * 1000;
+
+function startKeepAliveScheduler() {
+  const baseUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!baseUrl) return;
+
+  const healthUrl = `${baseUrl.replace(/\/+$/, '')}/health`;
+
+  const ping = async () => {
+    try {
+      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(30000) });
+      console.log(`[keep-alive] ${healthUrl} -> ${res.status}`);
+    } catch (err) {
+      // A failed ping must never take the server down — log it and try again next interval.
+      console.error(`[keep-alive] ping failed: ${err.message}`);
+    }
+  };
+
+  setInterval(ping, KEEP_ALIVE_INTERVAL_MS);
+  console.log(`[keep-alive] scheduler started — pinging ${healthUrl} every 14 minutes`);
+}
+
 connectDB().then(() => {
-  app.listen(env.port, () => console.log(`Server running on port ${env.port}`));
+  app.listen(env.port, () => {
+    console.log(`Server running on port ${env.port}`);
+    startKeepAliveScheduler();
+  });
 });

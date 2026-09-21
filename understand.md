@@ -12,7 +12,7 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-21 (increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
+Last updated: 2026-09-21 (added an in-process 14-minute self-ping keep-alive scheduler to `backend/index.js`, see §9; earlier the same day: increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
 
 Last updated: 2026-09-18 (changed Separate Bill delete from hard to soft within hours of
 shipping it, at the user's follow-up request ("on demand of data we can give them") — hidden
@@ -1813,6 +1813,21 @@ invoices) replacing what used to be "Outstanding Payables" before Purchases was 
        (`"Loading invoices…"`, `"Loading company profile…"`, etc.). Nothing here needed
        fixing; this was never actually broken, only the route-chunk-level Suspense
        boundaries were.
+- **In-process self-ping keep-alive scheduler, added 2026-09-21.** `startKeepAliveScheduler()`
+  in `backend/index.js` (called from the `app.listen` callback) `fetch`es
+  `${RENDER_EXTERNAL_URL}/health` every 14 minutes via `setInterval` (30s abort timeout;
+  failures are caught and logged as `[keep-alive] ping failed: …`, never crash the server).
+  `RENDER_EXTERNAL_URL` is set by Render automatically on every web service, so **no env var
+  needs configuring**; when unset (local dev) the scheduler doesn't start. No new dependency
+  (global `fetch`; Node 20 in the Dockerfile). Added because cron-job.org kept reporting
+  errors. It pings the public URL, not localhost, because only requests through Render's
+  router count as traffic. **Limitation:** it can only *prevent* sleep — a service that is
+  already asleep isn't running the timer, so an external pinger (cron-job.org) or a first user
+  request is still what wakes a cold instance. A cold start can also exceed cron-job.org's
+  response timeout, which is the likely (unverified) cause of its errors. Verified locally by
+  preloading a shim that shrank the 14-minute interval to 1s: repeated `-> 200` pings, and no
+  scheduler output when `RENDER_EXTERNAL_URL` is unset. Free plan = 750 instance-hours/month,
+  so only ONE service should stay running 24/7 (delete the old `maruti-services` Node service).
 - **Render free-plan keep-alive, added 2026-09-16 (prep work — app isn't deployed yet).**
   Render's free web-service plan auto-sleeps a service after ~15 minutes with no incoming
   requests, then cold-starts (slow) on the next one. The user asked for this to be handled

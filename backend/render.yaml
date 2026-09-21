@@ -12,8 +12,9 @@ services:
     plan: free
     # GET /health (index.js — the one deliberate exception to this API's POST-only
     # convention) — Render pings this to decide whether the service is up. Separate from,
-    # but complementary to, the .github/workflows/keep-alive.yml scheduled ping that exists
-    # specifically to stop the free plan's 15-minutes-idle auto-sleep from kicking in at all.
+    # but complementary to, the in-process self-ping scheduler in index.js (uses Render's
+    # auto-set RENDER_EXTERNAL_URL, every 14 min) that exists specifically to stop the free
+    # plan's 15-minutes-idle auto-sleep from kicking in at all.
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
