@@ -19,12 +19,12 @@ import { renderPdf, getDefaultLogoDataUri } from '../services/pdf.service.js';
 const DECLARATION_TEXT =
   'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.';
 
-// Financial fields Section 9 requires to stay immutable once an invoice is finalized —
-// everything else (delivery/despatch metadata, e-way bill number, status) can still change.
-// `invoiceNo` joined this list 2026-09-29 when manual numbering was added — changing the
-// printed invoice number on a finalized invoice must go through the same "Unlock to Edit"
-// gate as every other financial field (see invoice.controller.js's `unlock`), not a new
-// special case.
+// Financial fields Section 9 requires to stay immutable once an invoice is finalized OR
+// cancelled (LOCKED_STATUSES, below) — everything else (delivery/despatch metadata, e-way
+// bill number, status) can still change. `invoiceNo` joined this list 2026-09-29 when manual
+// numbering was added — changing the printed invoice number on a locked invoice must go
+// through the same "Unlock to Edit" gate as every other financial field (see this file's
+// `unlock`), not a new special case.
 const FINANCIAL_FIELDS = [
   'invoiceNo',
   'items',
@@ -307,33 +307,42 @@ export const downloadPdf = asyncHandler(async (req, res) => {
   res.send(pdfBuffer);
 });
 
-// POST /invoices/update — body: { id, ...fields }. Finalized invoices are immutable for
-// financial fields, including `invoiceNo` since 2026-09-29 (Section 9) — only metadata
-// (despatch details, e-way bill no, status) can still change here. This endpoint itself
-// never reverts a finalized invoice to draft — the only path back is the separate, audited
-// `unlock` below, which logs why before it touches anything.
+// POST /invoices/update — body: { id, ...fields }. Finalized AND cancelled invoices are
+// immutable for financial fields, including `invoiceNo` since 2026-09-29 (Section 9) — only
+// metadata (despatch details, e-way bill no, status) can still change here. This endpoint
+// itself never reverts either status to draft directly — the only path back is the separate,
+// audited `unlock` below, which logs why before it touches anything. Cancelled joined this
+// rule the same day unlock itself was extended to accept it (see unlock's own comment) — it
+// was an accidental gap before that: only 'finalized' was ever checked here, so a cancelled
+// invoice's financial fields were technically editable via a direct API call with no
+// immutability guard and no audit trail at all, which no longer holds once "cancelled" is a
+// formally unlock-gated status like "finalized" already was.
+const LOCKED_STATUSES = ['finalized', 'cancelled'];
+
 export const update = asyncHandler(async (req, res) => {
   const { id, items, confirmDuplicateInvoiceNo, ...fields } = req.body;
   const existing = await methods.findOne(Invoice, { _id: id, company: req.user.company });
   if (!existing) throw ApiError.notFound('Invoice not found.');
 
-  if (existing.status === 'finalized') {
+  if (LOCKED_STATUSES.includes(existing.status)) {
     const attemptedKeys = Object.keys(fields).concat(items ? ['items'] : []);
     const disallowed = attemptedKeys.filter((k) => {
       if (!FINANCIAL_FIELDS.includes(k)) return false;
       // Same key present but the same value isn't a real change — lets a caller always
       // include invoiceNo in its payload (InvoiceForm.jsx does) without that alone
-      // tripping the immutability guard on a finalized invoice.
+      // tripping the immutability guard.
       if (k === 'invoiceNo' && fields.invoiceNo === existing.invoiceNo) return false;
       return true;
     });
     if (disallowed.length > 0) {
       throw ApiError.forbidden(
-        `Finalized invoices are immutable. Cannot change: ${disallowed.join(', ')}.`
+        `A ${existing.status} invoice is immutable. Cannot change: ${disallowed.join(', ')}.`
       );
     }
     if (fields.status === 'draft') {
-      throw ApiError.forbidden('A finalized invoice cannot be reverted to draft.');
+      throw ApiError.forbidden(
+        `A ${existing.status} invoice cannot be reverted to draft directly — use Unlock to Edit.`
+      );
     }
   }
 
@@ -407,22 +416,29 @@ export const update = asyncHandler(async (req, res) => {
 });
 
 // POST /invoices/unlock — body: { id, reason? }. Admin-only (matches /invoices/delete).
-// Reverts a finalized invoice back to 'draft' so its financial fields become editable again
+// Reverts a finalized OR cancelled invoice back to 'draft' so it becomes editable again
 // through the normal /invoices/update path above — but unlike simply lifting the immutability
-// check, this snapshots every FINANCIAL_FIELDS value (plus the 'finalized' status itself) into
+// check, this snapshots every FINANCIAL_FIELDS value (plus the original status itself) into
 // editHistory BEFORE reverting, so what the invoice originally said is never silently lost,
 // only superseded and kept visible. invoiceNo/financialYear are untouched either way, so the
 // numbering sequence never gets a gap from this. Added 2026-09-29 at the user's request: a
 // client finalized a bill with a genuine input mistake and had no way to correct it — the
 // original hard immutability (Section 9) was working exactly as designed, it was just too
 // strict for that real case. Cancel + reissue (existing /invoices/delete) remains the right
-// tool when the buyer already has the incorrect copy in hand; this unlock flow is for
-// catching a mistake before that happens.
+// tool when the buyer already has the incorrect copy in hand.
+//
+// Extended the same day to also accept a 'cancelled' invoice — a second, distinct real case:
+// a bill was cancelled (e.g. by mistake, or before the user realized data was missing) and
+// there was no way back into it at all — Edit only shows for 'draft', and unlock originally
+// only accepted 'finalized'. Reusing this exact mechanism (rather than a separate "restore"
+// endpoint) keeps one audited path back to draft regardless of which non-draft status an
+// invoice is in; `previousValues.status` in the resulting editHistory entry already records
+// which one it actually was.
 export const unlock = asyncHandler(async (req, res) => {
   const existing = await methods.findOne(Invoice, { _id: req.body.id, company: req.user.company });
   if (!existing) throw ApiError.notFound('Invoice not found.');
-  if (existing.status !== 'finalized') {
-    throw ApiError.badRequest('Only a finalized invoice can be unlocked.');
+  if (existing.status !== 'finalized' && existing.status !== 'cancelled') {
+    throw ApiError.badRequest('Only a finalized or cancelled invoice can be unlocked.');
   }
 
   const previousValues = FINANCIAL_FIELDS.reduce(

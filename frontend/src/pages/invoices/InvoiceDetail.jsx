@@ -59,12 +59,14 @@ export default function InvoiceDetail() {
     load();
   };
 
-  // Reverts a finalized invoice back to 'draft' (see invoice.controller.js's unlock) — the
-  // server records a full snapshot of the pre-unlock financial fields into editHistory
-  // before it touches anything, so this is never a silent, untracked change even though the
-  // numbers themselves can then be edited via the normal Edit flow. Admin-only server-side;
-  // the button itself isn't hidden by role here, matching how Delete/Cancel already work on
-  // this page — the backend is the actual enforcement point.
+  // Reverts a finalized OR cancelled invoice back to 'draft' (see invoice.controller.js's
+  // unlock — extended 2026-09-29 to also accept 'cancelled', for the case of a bill that was
+  // cancelled before the user realized data was still missing from it). The server records a
+  // full snapshot of the pre-unlock financial fields into editHistory before it touches
+  // anything, so this is never a silent, untracked change even though the numbers themselves
+  // can then be edited via the normal Edit flow. Admin-only server-side; the button itself
+  // isn't hidden by role here, matching how Delete/Cancel already work on this page — the
+  // backend is the actual enforcement point.
   const unlockInvoice = async () => {
     setUnlocking(true);
     try {
@@ -113,7 +115,7 @@ export default function InvoiceDetail() {
               Finalize
             </Button>
           )}
-          {invoice.status === 'finalized' && (
+          {(invoice.status === 'finalized' || invoice.status === 'cancelled') && (
             <Button variant="secondary" onClick={() => setShowUnlockModal(true)}>
               Unlock to Edit
             </Button>

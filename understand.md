@@ -12,15 +12,19 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-29 (added a manual invoice-number override with a warn-then-confirm
-duplicate flow — `invoiceNo` can now be hand-typed on create/edit, a collision 409s with a
-structured `meta.duplicateInvoiceNo` instead of blocking outright, and confirming it now
-actually saves since `Invoice`'s unique index was deliberately loosened; see the "Manual
-invoice-number override" section above, including a manual DB-index migration note for
-production). Earlier the same day: added an admin-only "Unlock to Edit" flow for finalized
-invoices — `POST /invoices/unlock` reverts status to draft and logs a full pre-unlock snapshot
-to a new `Invoice.editHistory`; kept out of the invoice UI entirely at the user's request,
-retrievable from the DB/API only on demand — see the Invoice editing section above).
+Last updated: 2026-09-29 (extended "Unlock to Edit" to also accept cancelled invoices, not
+just finalized ones, and in doing so closed a real gap where a cancelled invoice's financial
+fields had no immutability protection at all — see the ""Unlock to Edit" extended to
+cancelled invoices" section above). Earlier the same day: added a manual invoice-number
+override with a warn-then-confirm duplicate flow — `invoiceNo` can now be hand-typed on
+create/edit, a collision 409s with a structured `meta.duplicateInvoiceNo` instead of blocking
+outright, and confirming it now actually saves since `Invoice`'s unique index was deliberately
+loosened; see the "Manual invoice-number override" section, including a manual DB-index
+migration note for production. Earlier still the same day: added an admin-only "Unlock to
+Edit" flow for finalized invoices — `POST /invoices/unlock` reverts status to draft and logs a
+full pre-unlock snapshot to a new `Invoice.editHistory`; kept out of the invoice UI entirely
+at the user's request, retrievable from the DB/API only on demand — see the Invoice editing
+section above).
 Earlier: added an in-process 14-minute self-ping keep-alive scheduler to `backend/index.js`,
 see §9; also on 2026-09-21: increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
 
@@ -778,6 +782,36 @@ explicit, audited escape hatch:
   "Unlock to Edit" → fill reason → confirm → Edit → Finalize) correctly recorded both
   `editHistory` entries server-side, including the populated unlocker name and typed reason
   (checked via the API response — this was before the table was hidden from the page).
+
+### "Unlock to Edit" extended to cancelled invoices; closed an immutability gap (added 2026-09-29)
+Same day, after the "Unlock to Edit" work above shipped: the user needed to fix a *cancelled*
+bill that turned out to be missing data — and there was no path back into it at all. Edit only
+shows for `'draft'`; `unlock` originally only accepted `'finalized'`. Rather than add a
+separate "restore" mechanism, `unlock` (`invoice.controller.js`) now accepts either
+`'finalized'` or `'cancelled'` — same audit trail, same admin-only gate, same "revert to
+draft, then use the normal Edit flow" shape. `editHistory[].previousValues.status` already
+records which one it actually was, so nothing was lost by sharing the mechanism.
+- **Closed a real gap this surfaced**: before this, `update()`'s immutability check only ever
+  tested `existing.status === 'finalized'` — a **cancelled** invoice's financial fields
+  (`items`, totals, `invoiceNo`, etc.) were technically editable via a direct API call with
+  **no immutability guard and no audit trail at all** (the UI never exposed this since Edit
+  is hidden for non-draft invoices, but the backend itself didn't enforce it). Introduced
+  `LOCKED_STATUSES = ['finalized', 'cancelled']` and switched the check to
+  `LOCKED_STATUSES.includes(existing.status)`, so a cancelled invoice now gets the exact same
+  protection a finalized one always had — it must be unlocked first, and unlocking always
+  logs the pre-change snapshot.
+- **`InvoiceDetail.jsx`**: "Unlock to Edit" now shows for `status === 'finalized' ||
+  status === 'cancelled'` (was finalized-only). The modal's copy was already status-agnostic
+  ("fix the mistake, then finalize it again"), so no wording change was needed there.
+- **Verified live** against a disposable test tenant, cleaned up after: confirmed the gap
+  really existed pre-fix isn't retestable after the fact (the fix and the gap were closed in
+  the same change), but post-fix — a direct financial-field edit on a freshly-cancelled
+  invoice correctly 403s ("A cancelled invoice is immutable..."); unlocking it correctly
+  reverts to draft; editing it (changing the missing item data) and re-finalizing round-trips
+  correctly, with `invoiceNo` unchanged throughout; unlocking a plain draft invoice still
+  correctly 400s ("Only a finalized or cancelled invoice can be unlocked"); driving the actual
+  UI (cancel a real invoice via its own Cancel button, reload) showed "Unlock to Edit" appear
+  and Edit/Cancel disappear, exactly matching a finalized invoice's button set.
 
 ### Manual invoice-number override, with a warn-then-confirm duplicate flow (added 2026-09-29)
 `invoiceNo` used to be 100% system-generated and completely uneditable — `update()` deleted

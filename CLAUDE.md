@@ -27,15 +27,18 @@ section following the existing structure and note the date. Full protocol is in
   explicitly asked.
 - Controllers never touch Mongoose models directly — always go through `backend/methods.js`
   (services are the exception). See `understand.md` §2 and §5.
-- **A finalized invoice's financial fields are immutable by default** — but since
-  2026-09-29 an admin can call `POST /invoices/unlock` to revert one to `draft` for a genuine
-  correction. This is not a bypass: it snapshots the pre-unlock financial fields into
-  `Invoice.editHistory` first, so the audit trail survives even though the numbers change.
-  `invoiceNo` is never touched either way. Don't add a way to edit a finalized invoice's
-  numbers that skips this logging. **`editHistory` is deliberately not shown anywhere in the
-  UI** (the user wants it available only "on special demand," from the DB/API directly) —
-  don't add a visible history table for it without being asked again. See the "Invoice
-  editing" section of `understand.md`.
+- **A finalized OR cancelled invoice's financial fields are immutable by default**
+  (`LOCKED_STATUSES` in `invoice.controller.js`) — but since 2026-09-29 an admin can call
+  `POST /invoices/unlock` to revert either one to `draft` for a genuine correction. This is not
+  a bypass: it snapshots the pre-unlock financial fields into `Invoice.editHistory` first, so
+  the audit trail survives even though the numbers change. `invoiceNo` is never touched either
+  way. Don't add a way to edit a locked invoice's numbers that skips this logging. If you ever
+  touch `LOCKED_STATUSES` or the finalized-only immutability check, remember cancelled must
+  stay covered too — that used to be an accidental gap (see `understand.md`'s dated note) and
+  shouldn't be reopened. **`editHistory` is deliberately not shown anywhere in the UI** (the
+  user wants it available only "on special demand," from the DB/API directly) — don't add a
+  visible history table for it without being asked again. See the "Invoice editing" section of
+  `understand.md`.
 - **`invoiceNo` can be manually set on create/update (2026-09-29)** — `Invoice`'s
   `{company, financialYear, invoiceNo}` index is deliberately non-unique now (was
   `unique: true`); a duplicate is allowed through only after an explicit
