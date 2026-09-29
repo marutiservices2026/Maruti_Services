@@ -3,11 +3,19 @@
 // (404), conflict (409), and server (500) errors are all handled the same way through
 // error.middleware.js — no scattered res.status(...) calls in controllers.
 class ApiError extends Error {
-  constructor(statusCode, message = 'Something went wrong', errors = []) {
+  // `meta` (added 2026-09-29) — optional structured payload for a caller that needs more
+  // than a human-readable message + field errors to react correctly, e.g. the invoice
+  // duplicate-number conflict (invoice.controller.js), where the frontend needs the
+  // conflicting invoice's own id/number/date to build a specific "use anyway?" confirm
+  // dialog rather than just showing a generic error toast. Passed through untouched by
+  // error.middleware.js; omitted (undefined) for every existing caller, so this is additive
+  // and doesn't change any current error response's shape.
+  constructor(statusCode, message = 'Something went wrong', errors = [], meta) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.errors = errors;
+    this.meta = meta;
     this.success = false;
     Error.captureStackTrace(this, this.constructor);
   }
@@ -28,8 +36,8 @@ class ApiError extends Error {
     return new ApiError(404, message);
   }
 
-  static conflict(message = 'Conflict', errors = []) {
-    return new ApiError(409, message, errors);
+  static conflict(message = 'Conflict', errors = [], meta) {
+    return new ApiError(409, message, errors, meta);
   }
 
   static internal(message = 'Something went wrong') {

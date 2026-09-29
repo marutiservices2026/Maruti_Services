@@ -12,7 +12,17 @@
 > not later. Treat an out-of-date `understand.md` as a bug. See "How to keep this file
 > updated" at the bottom for the exact protocol.
 
-Last updated: 2026-09-21 (added an in-process 14-minute self-ping keep-alive scheduler to `backend/index.js`, see §9; earlier the same day: increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
+Last updated: 2026-09-29 (added a manual invoice-number override with a warn-then-confirm
+duplicate flow — `invoiceNo` can now be hand-typed on create/edit, a collision 409s with a
+structured `meta.duplicateInvoiceNo` instead of blocking outright, and confirming it now
+actually saves since `Invoice`'s unique index was deliberately loosened; see the "Manual
+invoice-number override" section above, including a manual DB-index migration note for
+production). Earlier the same day: added an admin-only "Unlock to Edit" flow for finalized
+invoices — `POST /invoices/unlock` reverts status to draft and logs a full pre-unlock snapshot
+to a new `Invoice.editHistory`; kept out of the invoice UI entirely at the user's request,
+retrievable from the DB/API only on demand — see the Invoice editing section above).
+Earlier: added an in-process 14-minute self-ping keep-alive scheduler to `backend/index.js`,
+see §9; also on 2026-09-21: increased font size of the "From" and "To" blocks in the classic invoice PDF template (`.party-cell` in `classic.template.html`) to improve readability. Also replaced the "Create Invoice" / "Save Changes" button in `InvoiceForm.jsx` entirely with a primary "Create & Print" / "Save & Print" button, replaced the "View" button in `InvoiceList.jsx` entirely with a "Print" button while making the Invoice Number itself the clickable link to view details, turned the static status badges in the invoice list into interactive dropdowns so users can change an invoice's status directly from the list, and finally mirrored this exact same "Create & Print" and list-level "Print" logic over to Separate Bills via `QuotationForm.jsx` and `QuotationList.jsx`).
 
 Last updated: 2026-09-18 (changed Separate Bill delete from hard to soft within hours of
 shipping it, at the user's follow-up request ("on demand of data we can give them") — hidden
@@ -715,6 +725,129 @@ than needing a separate prop:
   did nothing — no network request, no error. Clicking the same button via a direct
   `document.querySelector(...).click()` in `page.evaluate()` worked immediately. Not an app
   bug — see the browser-automation skill's own note that refs die on re-render.)
+
+### Unlocking a finalized invoice for editing, with a logged history (added 2026-09-29)
+The "finalized invoices are immutable" rule above (added 2026-09-14) was deliberate and
+still holds by default — but a real client-reported case surfaced a gap in it: they
+finalized a bill with a genuine input mistake (e.g. wrong quantity) and had no way to
+correct it short of cancelling and reissuing under a new invoice number, which they didn't
+want for a simple typo. The fix is **not** removing the immutability check — it's an
+explicit, audited escape hatch:
+- **`POST /invoices/unlock`** (`invoice.controller.js#unlock`, admin-only via
+  `requireRole('admin')`, same as `/invoices/delete`) reverts a finalized invoice's `status`
+  back to `'draft'`, which makes it flow through the *existing* `/invoices/update` path with
+  no further backend changes needed — the `FINANCIAL_FIELDS` check simply doesn't apply to a
+  draft. `invoiceNo`/`financialYear` are never touched, so the numbering sequence never gets
+  a gap from this (unlike cancel + reissue, which consumes a second number).
+- **The audit trail is the actual point.** Before flipping the status, `unlock` snapshots
+  every `FINANCIAL_FIELDS` value (plus the `'finalized'` status itself) into a new
+  `Invoice.editHistory` array entry (`{ unlockedAt, unlockedBy, reason, previousValues }`,
+  append-only, `_id: false` subdocs). So "can be edited after finalizing" never becomes
+  "can be silently changed after finalizing" — what the invoice said immediately before each
+  unlock stays visible forever. `reason` is optional input but strongly encouraged in the UI.
+- **Guard:** unlocking a non-`'finalized'` invoice is rejected with 400 ("Only a finalized
+  invoice can be unlocked") — there's nothing to unlock from `draft`/`cancelled`.
+- **Frontend:** `InvoiceDetail.jsx` shows an "Unlock to Edit" button only when
+  `status === 'finalized'` (mirroring how Edit/Finalize are conditioned on `'draft'`), opening
+  a small `Modal` with an optional reason textarea (`unlockInvoice()` in `invoice.api.js`).
+  On success the page reloads in `'draft'` state, so Edit/Finalize appear exactly like any
+  other draft invoice.
+- **`editHistory` is deliberately NOT rendered anywhere in the UI (changed 2026-09-29, hours
+  after first shipping a visible table for it)** — the user asked to keep unlock/edit activity
+  out of the normal invoice view entirely, available only "on special demand." It still exists
+  in full in the DB and in the `/invoices/detail` API response (`detail()` still populates
+  `'editHistory.unlockedBy'` alongside `buyer`/`items.product`, so a name is available, not
+  just an ObjectId, whenever it IS looked up) — nothing about the logging itself changed, only
+  whether the invoice page displays it. Retrieve it by querying the DB directly or calling
+  `/invoices/detail` directly (e.g. via curl/Postman) — there is currently no admin UI surface
+  for it, by design; build one only if asked. `formatDateTime()`, added to `formatters.js`
+  specifically for the now-removed table, was removed again as dead code in the same change —
+  if a future feature needs date+time formatting, it's fine to re-add.
+  `InvoiceForm.jsx`'s header comment still correctly describes unlock as the second legitimate
+  path back into edit mode for a finalized invoice, alongside cancel + reissue — that part is
+  unaffected by hiding the history table.
+- **Cancel + reissue remains the right tool**, not this, once the buyer already has the
+  incorrect copy in hand — unlock is for catching a mistake before that happens. Neither tool
+  was removed or weakened by adding the other.
+- **Verified live** end-to-end against a disposable test tenant (own company/user/party, all
+  exact-`_id` cleaned up after, per §10's test discipline): direct financial-field edit on a
+  finalized invoice still correctly 403s (existing rule intact); unlock → edit (qty 10→5,
+  total 1180→590) → re-finalize round-tripped correctly with `invoiceNo` unchanged
+  (`GST-0001` throughout, no gap consumed); unlocking an already-draft invoice correctly
+  400s; a second unlock cycle driven through the real UI (login → open invoice → click
+  "Unlock to Edit" → fill reason → confirm → Edit → Finalize) correctly recorded both
+  `editHistory` entries server-side, including the populated unlocker name and typed reason
+  (checked via the API response — this was before the table was hidden from the page).
+
+### Manual invoice-number override, with a warn-then-confirm duplicate flow (added 2026-09-29)
+`invoiceNo` used to be 100% system-generated and completely uneditable — `update()` deleted
+it from every payload unconditionally, before this feature even existed. The user asked to be
+able to set/adjust it themselves (e.g. matching an external numbering scheme, or fixing a
+mistake on a bill still being edited). This has a real GST compliance angle — invoice numbers
+are supposed to be unique per financial year — so the design was deliberately narrowed down
+with the user first (two explicit questions, both answered toward maximum flexibility): edit
+it even on an already-finalized invoice (via the "Unlock to Edit" flow above, not a separate
+mechanism), and on a collision, warn but still allow it if confirmed.
+- **Create (`invoice.controller.js#create`) and update (`#update`) both accept an optional
+  `invoiceNo` in the body.** Blank/omitted = unchanged behavior (auto-generate on create,
+  don't touch on update). A non-blank value is used as-is instead of/replacing the
+  auto-generated number.
+- **Duplicate check + confirm round-trip, no new route needed.** If the typed number already
+  belongs to another invoice in the same company + financial year, the request is rejected
+  with `409` and a structured `meta.duplicateInvoiceNo` (`existingInvoiceId`/`existingInvoiceNo`/
+  `existingInvoiceDate`) instead of just a message — added as a generic optional 4th
+  constructor arg on `ApiError`/`ApiError.conflict()`, passed through untouched by
+  `error.middleware.js`, so every other `ApiError` call site is unaffected. The client resends
+  the same request with `confirmDuplicateInvoiceNo: true` to force it through. `axiosClient.js`
+  specifically skips its normal auto-toast for this one conflict shape (matching how it already
+  skips the `/auth/refresh` 401) since the caller shows a proper confirm dialog instead.
+  `InvoiceForm.jsx`'s `attemptSave()` does the catch → `confirmDialog(...)` → retry-with-confirm
+  sequence.
+- **A confirmed duplicate can now actually be saved** — `Invoice.model.js`'s
+  `{company, financialYear, invoiceNo}` index changed from `unique: true` to a plain index
+  (see its own comment). **This required a manual, one-time DB migration in local dev**:
+  Mongoose does not drop/alter an existing index just because the schema definition changed
+  underneath it — the stale `unique: true` index was still physically present and caused every
+  "confirmed" duplicate attempt to fail with a raw `E11000`/"Duplicate value for company" error
+  until it was dropped and recreated by hand (`dropIndex` + `createIndex` directly on the
+  `invoices` collection). **This same manual step will be needed on the production Atlas
+  database the first time this code deploys there** — don't assume `deploy` alone fixes it;
+  check via `db.invoices.getIndexes()` and drop the unique one if it's still there.
+- **`invoiceNo` joined `FINANCIAL_FIELDS`**, so on a *finalized* invoice it's protected by the
+  exact same "Unlock to Edit" gate as every other financial field — no separate immutability
+  logic was added. One refinement made necessary by this: the finalized-invoice guard used to
+  flag a field as disallowed just from being *present* in the payload; for `invoiceNo`
+  specifically it now also checks the value actually differs from the existing one first,
+  since `InvoiceForm.jsx` always includes the current `invoiceNo` in every save (the field is
+  always visible/editable), and that would otherwise 403 an ordinary metadata-only edit
+  (e-way bill no., despatch details) on a finalized invoice for no reason. This same "no real
+  change" idea is reused on the `update()` duplicate check itself (re-saving the same value
+  never re-triggers the warning).
+- **`advanceCounterPast()`** (new, `invoiceNumber.service.js`) — after a manual number is
+  accepted, this advances the company's auto-numbering `Counter` past it (via an atomic
+  `$max` + `upsert`) so a *future* ordinary invoice can never collide with the hand-typed one.
+  Best-effort: only understands this app's own `"<prefix>-<digits>"` shape; a fully custom
+  external scheme is left alone, an accepted trade-off once someone is hand-managing numbers.
+- **Frontend:** `InvoiceForm.jsx` has a plain "Invoice Number" text input next to Invoice Date
+  (both create and edit — edit mode is only ever reached for a draft, or an unlocked-back-to-
+  draft finalized invoice, so no extra state-gating was needed there), with a caption warning
+  it must stay unique and that a collision will prompt for confirmation.
+- **Verified live**, all against disposable test tenants, cleaned up exactly after (own
+  company/user/party/invoices, deleted by exact `_id`/company scope, per §10's test
+  discipline): auto-numbering with no override unaffected (`GST-0001`); manual override with
+  no collision (`GST-9999`) accepted directly; the very next auto-generated invoice correctly
+  continued from `GST-10000`, not `GST-0002`; typing an exact duplicate without confirming
+  correctly 409s with the right `meta`; the same request with `confirmDuplicateInvoiceNo: true`
+  correctly saves a genuine duplicate; updating a draft invoice's number to collide with
+  another one goes through the identical warn/confirm flow; re-saving a draft with its own
+  unchanged number needs no confirmation; a finalized invoice rejects a real `invoiceNo` change
+  (403, "must unlock first") but accepts an update that merely re-sends its own unchanged
+  number alongside a real metadata change; unlocking then does allow the number to change, and
+  the pre-change number is captured correctly in `editHistory[].previousValues.invoiceNo`.
+  Also drove the actual UI end-to-end (fill Invoice Number with an existing number → submit →
+  confirm modal appears with the correct existing-invoice details → "Use Anyway" → lands on
+  the new, genuinely-duplicate invoice's detail page) — screenshot confirmed the field, its
+  caption, and the modal all read cleanly.
 
 ### QA-pass fixes: duplicate-submit guard, silent validation, a stale select race (added 2026-09-15)
 A QA pass run via Claude-in-Chrome (browser-only, no filesystem/terminal access — see §10)

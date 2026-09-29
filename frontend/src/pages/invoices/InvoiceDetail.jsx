@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import * as invoiceApi from '../../api/invoice.api.js';
 import Button from '../../components/common/Button.jsx';
 import Loader from '../../components/common/Loader.jsx';
+import Modal from '../../components/common/Modal.jsx';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
 import { toast } from '../../components/common/Toast.jsx';
 import { confirmDialog } from '../../components/common/ConfirmDialog.jsx';
@@ -17,6 +18,9 @@ export default function InvoiceDetail() {
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockReason, setUnlockReason] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -55,6 +59,27 @@ export default function InvoiceDetail() {
     load();
   };
 
+  // Reverts a finalized invoice back to 'draft' (see invoice.controller.js's unlock) — the
+  // server records a full snapshot of the pre-unlock financial fields into editHistory
+  // before it touches anything, so this is never a silent, untracked change even though the
+  // numbers themselves can then be edited via the normal Edit flow. Admin-only server-side;
+  // the button itself isn't hidden by role here, matching how Delete/Cancel already work on
+  // this page — the backend is the actual enforcement point.
+  const unlockInvoice = async () => {
+    setUnlocking(true);
+    try {
+      await invoiceApi.unlockInvoice(id, unlockReason.trim() || undefined);
+      toast.success('Invoice unlocked — you can edit it now.');
+      setShowUnlockModal(false);
+      setUnlockReason('');
+      load();
+    } catch {
+      // toast already shown by the axios interceptor
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   const cancelInvoice = async () => {
     const ok = await confirmDialog({
       title: 'Cancel invoice',
@@ -86,6 +111,11 @@ export default function InvoiceDetail() {
           {invoice.status === 'draft' && (
             <Button variant="success" onClick={finalize}>
               Finalize
+            </Button>
+          )}
+          {invoice.status === 'finalized' && (
+            <Button variant="secondary" onClick={() => setShowUnlockModal(true)}>
+              Unlock to Edit
             </Button>
           )}
           {invoice.status !== 'cancelled' && (
@@ -156,6 +186,42 @@ export default function InvoiceDetail() {
           <strong>Total: {formatCurrency(invoice.totalAmount)}</strong>
         </div>
       </div>
+
+      {/* editHistory is deliberately NOT rendered here — the user wants unlock/edit activity
+          kept out of the normal invoice view entirely, available only on special demand
+          (query the DB, or the /invoices/detail API response, directly). See
+          invoice.controller.js's unlock and understand.md's "Invoice editing" section. */}
+
+      <Modal
+        open={showUnlockModal}
+        onClose={() => setShowUnlockModal(false)}
+        title="Unlock invoice to edit"
+      >
+        <p style={{ marginTop: 0 }}>
+          This reverts {invoice.invoiceNo} to a draft so you can fix the mistake, then finalize
+          it again. Its current figures are saved to the edit history first, so nothing is
+          lost — the invoice number itself never changes.
+        </p>
+        <div className="field">
+          <label htmlFor="unlock-reason">Reason (optional, but recorded in the history)</label>
+          <textarea
+            id="unlock-reason"
+            className="input"
+            rows={3}
+            placeholder="e.g. Wrong quantity on line 2"
+            value={unlockReason}
+            onChange={(e) => setUnlockReason(e.target.value)}
+          />
+        </div>
+        <div className="row" style={{ marginTop: 20, justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={() => setShowUnlockModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={unlockInvoice} disabled={unlocking}>
+            {unlocking ? 'Unlocking…' : 'Unlock to Edit'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

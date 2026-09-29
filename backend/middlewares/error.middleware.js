@@ -51,5 +51,8 @@ export default function errorMiddleware(err, req, res, next) {
     success: false,
     message: error.statusCode === 500 ? 'Something went wrong. Please try again.' : error.message,
     errors: error.errors?.length ? error.errors : undefined,
+    // See ApiError's own comment — undefined for every error that doesn't set one, so this
+    // adds nothing to the existing response shape unless a controller opts in.
+    meta: error.meta,
   });
 }

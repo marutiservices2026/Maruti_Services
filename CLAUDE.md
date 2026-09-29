@@ -27,6 +27,23 @@ section following the existing structure and note the date. Full protocol is in
   explicitly asked.
 - Controllers never touch Mongoose models directly — always go through `backend/methods.js`
   (services are the exception). See `understand.md` §2 and §5.
+- **A finalized invoice's financial fields are immutable by default** — but since
+  2026-09-29 an admin can call `POST /invoices/unlock` to revert one to `draft` for a genuine
+  correction. This is not a bypass: it snapshots the pre-unlock financial fields into
+  `Invoice.editHistory` first, so the audit trail survives even though the numbers change.
+  `invoiceNo` is never touched either way. Don't add a way to edit a finalized invoice's
+  numbers that skips this logging. **`editHistory` is deliberately not shown anywhere in the
+  UI** (the user wants it available only "on special demand," from the DB/API directly) —
+  don't add a visible history table for it without being asked again. See the "Invoice
+  editing" section of `understand.md`.
+- **`invoiceNo` can be manually set on create/update (2026-09-29)** — `Invoice`'s
+  `{company, financialYear, invoiceNo}` index is deliberately non-unique now (was
+  `unique: true`); a duplicate is allowed through only after an explicit
+  `confirmDuplicateInvoiceNo: true` following a `409`+`meta.duplicateInvoiceNo` warning. If you
+  ever deploy this to a database that still has the old unique index (e.g. production Atlas
+  before its first deploy of this change), confirmed duplicates will fail with a raw
+  `E11000`/"Duplicate value" error until that index is dropped and recreated by hand — see the
+  "Manual invoice-number override" section of `understand.md` for the exact commands.
 - The keyboard-first UX system (`Alt+1..7`, `Space`, `Backspace`, `Ctrl+Enter`, `Alt+D/I`) is
   a deliberate, tested feature — don't remove or fight it. See `understand.md` §6.
 - The `classic` PDF invoice template is visually pinned to a user-supplied reference image —

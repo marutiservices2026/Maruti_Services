@@ -1,10 +1,21 @@
 // InvoiceForm.jsx — invoice creation/edit form with live tax calculation + dynamic
 // fields (Section 8, 12). Edit mode is only ever reached for draft invoices — see the
-// "Edit" button in InvoiceDetail.jsx, which is deliberately hidden once finalized
-// (matches real accounting practice: a finalized/issued invoice isn't silently altered,
-// it's cancelled and reissued — the backend's own updateInvoiceSchema/FINANCIAL_FIELDS
-// guard would reject a financial-field edit on a finalized invoice anyway, but the UI
-// doesn't even offer the option so there's nothing to reject in practice).
+// "Edit" button in InvoiceDetail.jsx, which is hidden once finalized (matches real
+// accounting practice: a finalized/issued invoice isn't silently altered — the backend's
+// own updateInvoiceSchema/FINANCIAL_FIELDS guard rejects a financial-field edit on a
+// finalized invoice, so the UI doesn't even offer the option in that state). Two ways
+// back into this form for a finalized invoice, added 2026-09-29: cancel + reissue (a new
+// invoice, unrelated document), or "Unlock to Edit" on InvoiceDetail.jsx, which reverts
+// status to 'draft' — logging a pre-unlock snapshot to editHistory first — and lands right
+// back here.
+//
+// Manual invoice-number override, also added 2026-09-29: the Invoice Number field below is
+// normally left blank (auto-generated), but can be typed over. If the typed value already
+// belongs to another invoice, the backend responds with a 409 carrying `meta.duplicateInvoiceNo`
+// instead of a generic error — handled below by showing a specific confirm dialog and
+// resubmitting with `confirmDuplicateInvoiceNo: true` if the user insists. This can genuinely
+// create two invoices with the same number when confirmed — that's a deliberate, informed
+// choice the user asked for, not a bug (see Invoice.model.js's index comment).
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as invoiceApi from '../../api/invoice.api.js';
@@ -21,8 +32,9 @@ import InvoiceLineItems from './InvoiceLineItems.jsx';
 import InvoicePreview from './InvoicePreview.jsx';
 import PartyForm from '../../pages/parties/PartyForm.jsx';
 import { useInvoiceCalculations } from '../../hooks/useInvoiceCalculations.js';
-import { formatCurrency, formatDateInput } from '../../utils/formatters.js';
+import { formatCurrency, formatDate, formatDateInput } from '../../utils/formatters.js';
 import { toast } from '../common/Toast.jsx';
+import { confirmDialog } from '../common/ConfirmDialog.jsx';
 
 // A stored invoice's line items don't persist their own gstRate (see Invoice.model.js —
 // only the invoice-level hsnWiseBreakup does), so editing has to reconstruct it by
@@ -132,6 +144,7 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
       return;
     }
 
+    const trimmedInvoiceNo = invoiceNo.trim();
     const payload = {
       buyer: buyerId,
       invoiceDate,
@@ -147,16 +160,42 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
           gstRate: i.product ? undefined : Number(i.gstRate) || 0,
         })),
       ...moreFields,
+      // Blank means "leave auto-generated"/"leave as-is" — only sent when the user actually
+      // typed something (create() and update() both treat a present invoiceNo as an explicit
+      // override; see invoice.controller.js).
+      ...(trimmedInvoiceNo ? { invoiceNo: trimmedInvoiceNo } : {}),
+    };
+
+    // Tries the save; if the backend comes back with a duplicate-invoice-number conflict
+    // (see axiosClient.js — that specific case skips the generic error toast), asks the user
+    // directly whether to proceed anyway, then resubmits once with confirmation. Any other
+    // error just propagates to the outer catch below.
+    const attemptSave = async (confirmDuplicate = false) => {
+      const body = confirmDuplicate ? { ...payload, confirmDuplicateInvoiceNo: true } : payload;
+      try {
+        return isEdit ? await invoiceApi.updateInvoice({ id, ...body }) : await invoiceApi.createInvoice(body);
+      } catch (err) {
+        const dup = err.response?.data?.meta?.duplicateInvoiceNo;
+        if (!dup || confirmDuplicate) throw err;
+        const ok = await confirmDialog({
+          title: 'Invoice number already used',
+          message: `"${trimmedInvoiceNo}" is already used by ${dup.existingInvoiceNo} (dated ${formatDate(
+            dup.existingInvoiceDate
+          )}). Use it anyway? Two invoices will then share the same number.`,
+          confirmLabel: 'Use Anyway',
+        });
+        if (!ok) return null;
+        return attemptSave(true);
+      }
     };
 
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const res = isEdit
-        ? await invoiceApi.updateInvoice({ id, ...payload })
-        : await invoiceApi.createInvoice(payload);
+      const res = await attemptSave();
+      if (!res) return; // user declined the duplicate-number confirmation
       toast.success(isEdit ? 'Invoice updated.' : 'Invoice created.');
-      
+
       const savedInvoice = res.data.data;
 
       if (shouldPrint) {
@@ -271,7 +310,18 @@ export default function InvoiceForm({ onCancel, onSuccess }) {
           onChange={(e) => setInvoiceDate(e.target.value)}
           required
         />
+        <Input
+          label="Invoice Number"
+          value={invoiceNo}
+          onChange={(e) => setInvoiceNo(e.target.value)}
+          placeholder="Leave blank to auto-generate"
+        />
       </div>
+      <p className="small muted" style={{ marginTop: -8, marginBottom: 12 }}>
+        Only change this if you know what you&apos;re doing — it must stay unique per invoice
+        for your GST filing. You&apos;ll be warned before it&apos;s allowed to match another
+        invoice.
+      </p>
 
       {parties.length === 0 && (
         <p className="small muted">

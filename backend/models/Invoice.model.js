@@ -86,14 +86,46 @@ const invoiceSchema = new mongoose.Schema(
     status: { type: String, enum: ['draft', 'finalized', 'cancelled'], default: 'draft' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
+    // Audit trail for the "Unlock to Edit" flow (added 2026-09-29 — invoice.controller.js's
+    // unlock) — a finalized invoice can be reverted to 'draft' and re-edited (e.g. a genuine
+    // mistake caught after finalizing), but every unlock snapshots the financial fields as
+    // they stood at that moment here FIRST, so the invoice's original numbers are never
+    // silently lost even though status/fields do change. Never edited or removed by any
+    // other code path — append-only.
+    editHistory: {
+      type: [
+        {
+          unlockedAt: { type: Date, required: true },
+          unlockedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          reason: { type: String, trim: true },
+          // Snapshot of FINANCIAL_FIELDS (see invoice.controller.js) plus the status
+          // ('finalized') at the moment of unlock — Mixed because it's a point-in-time
+          // copy of fields whose own shape can evolve, not a live reference.
+          previousValues: { type: mongoose.Schema.Types.Mixed, required: true },
+        },
+      ],
+      default: [],
+      _id: false,
+    },
+
     templateOverride: { type: String, enum: ['classic', 'modern', 'detailed'] },
   },
   { timestamps: true, strict: true }
 );
 
-// unique per company + financial year (the printed invoiceNo sequence resets each FY,
-// so uniqueness must include financialYear — see Section 6's index note)
-invoiceSchema.index({ company: 1, financialYear: 1, invoiceNo: 1 }, { unique: true });
+// Scoped per company + financial year (the printed invoiceNo sequence resets each FY) —
+// kept as a plain, non-unique index for lookup speed. NOT a unique constraint since
+// 2026-09-29: the auto-generated path (invoiceNumber.service.js) can never produce a
+// collision on its own, but the user explicitly asked to be allowed to manually set an
+// invoiceNo that duplicates an existing one, after an explicit "this number is already
+// used — use it anyway?" confirmation in the UI (invoice.controller.js's create/update,
+// gated on `confirmDuplicateInvoiceNo`). A hard unique index would make that confirmed
+// choice fail at the DB layer regardless of the user's intent, so the integrity guarantee
+// this index used to provide is now enforced at the application layer (as a warning, not a
+// block) instead of the database layer. Two real invoices sharing a number is a genuine GST
+// compliance risk the user was told about directly before this changed — not a bug if it
+// happens, since it now requires an explicit, informed confirmation to reach that state.
+invoiceSchema.index({ company: 1, financialYear: 1, invoiceNo: 1 });
 invoiceSchema.index({ company: 1, buyer: 1 });
 invoiceSchema.index({ company: 1, invoiceDate: 1 });
 

@@ -58,7 +58,11 @@ axiosClient.interceptors.response.use(
     // to /login above; surfacing its raw backend message ("Refresh token missing.") as a
     // toast on top of that redirect is just implementation detail leaking through.
     const isRefreshRoute = config?.url?.includes('/auth/refresh');
-    if (!isRefreshRoute) {
+    // A duplicate-invoice-number conflict (see invoice.controller.js's `meta`) is handled by
+    // the caller as a specific "use anyway?" confirm dialog, not a generic error toast — the
+    // caller already has everything it needs in `err.response.data.meta.duplicateInvoiceNo`.
+    const isDuplicateInvoiceNoConflict = Boolean(response?.data?.meta?.duplicateInvoiceNo);
+    if (!isRefreshRoute && !isDuplicateInvoiceNoConflict) {
       toast.error(formatApiErrorMessage(response?.data));
     }
     return Promise.reject(error);

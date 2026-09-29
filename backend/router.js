@@ -177,6 +177,15 @@ router.post(
   validate(invoiceValidator.idSchema),
   invoiceController.remove
 );
+// Admin-only, matching /invoices/delete — reverting a finalized invoice's numbers is at
+// least as consequential as cancelling it outright. See invoice.controller.js's unlock.
+router.post(
+  '/invoices/unlock',
+  authMiddleware,
+  requireRole('admin'),
+  validate(invoiceValidator.unlockInvoiceSchema),
+  invoiceController.unlock
+);
 
 router.post(
   '/invoices/pdf',

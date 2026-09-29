@@ -59,3 +59,41 @@ export async function getNextDocumentNumber(companyId, series, date = new Date()
   const documentNo = `${counter.prefix}-${String(counter.seq).padStart(4, '0')}`;
   return { documentNo, financialYear, seq: counter.seq };
 }
+
+/**
+ * Called after a user manually sets a document's number instead of taking the
+ * auto-generated one (added 2026-09-29, at the user's request — see invoice.controller.js's
+ * `create`/`update`). Advances this company's Counter forward so the NEXT auto-generated
+ * number in this series/financial-year never lands on the manually-set value — otherwise a
+ * future ordinary invoice could silently collide with a hand-typed one. Uses `$max`, so it's
+ * a no-op if the counter is already ahead, and correctly seeds a brand-new counter to this
+ * value via `upsert` if none exists yet (e.g. the very first invoice of the year was itself
+ * hand-numbered).
+ *
+ * Deliberately best-effort, not a hard guarantee: only understands this app's own
+ * "<prefix>-<digits>" shape (e.g. "GST-0050"). A manually-set number in some other shape
+ * (matching an external system's own scheme) can't be read as a sequence position, so it's
+ * left alone — the counter just keeps advancing from wherever it already was. That's an
+ * accepted trade-off: once someone is hand-managing numbering, avoiding every possible future
+ * collision isn't fully automatable, only the common case (typing ahead within this app's own
+ * format) is.
+ *
+ * @param {string} companyId
+ * @param {'invoice'|'quotation'} series
+ * @param {string} financialYear
+ * @param {string} manualDocumentNo
+ * @param {import('mongoose').ClientSession} [session]
+ */
+export async function advanceCounterPast(companyId, series, financialYear, manualDocumentNo, session) {
+  const match = /^[A-Za-z]+-0*(\d+)$/.exec(String(manualDocumentNo || '').trim());
+  if (!match) return;
+  const manualSeq = Number(match[1]);
+  if (!Number.isFinite(manualSeq) || manualSeq <= 0) return;
+
+  const key = `${SERIES_KEY[series]}-${financialYear}`;
+  await Counter.findOneAndUpdate(
+    { company: companyId, key },
+    { $max: { seq: manualSeq }, $setOnInsert: { prefix: DEFAULT_PREFIX[series] } },
+    { upsert: true, session }
+  );
+}

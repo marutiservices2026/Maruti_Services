@@ -36,11 +36,21 @@ const invoiceHeaderFields = {
   templateOverride: z.enum(TEMPLATES).optional(),
 };
 
+// Manual invoice-number override (added 2026-09-29) — optional on both create and update.
+// Leaving it blank keeps the existing auto-generated-number behavior. `confirmDuplicateInvoiceNo`
+// is the client's explicit "yes, use it anyway" after being shown which invoice already has
+// this number (see invoice.controller.js's duplicate-check + ApiError `meta` conflict).
+const invoiceNumberOverrideFields = {
+  invoiceNo: z.string().min(1).optional(),
+  confirmDuplicateInvoiceNo: z.boolean().optional(),
+};
+
 export const createInvoiceSchema = z.object({
   buyer: z.string().min(1),
   invoiceDate: z.coerce.date(),
   items: z.array(invoiceItemSchema).min(1),
   ...invoiceHeaderFields,
+  ...invoiceNumberOverrideFields,
 });
 
 export const updateInvoiceSchema = z.object({
@@ -51,6 +61,7 @@ export const updateInvoiceSchema = z.object({
   status: z.enum(STATUSES).optional(),
   ewayBillNo: z.string().optional(),
   ...invoiceHeaderFields,
+  ...invoiceNumberOverrideFields,
 });
 
 export const listInvoiceSchema = z.object({
@@ -65,3 +76,9 @@ export const listInvoiceSchema = z.object({
 });
 
 export const idSchema = z.object({ id: z.string().min(1) });
+
+// POST /invoices/unlock — reason is optional but encouraged (shown back in editHistory).
+export const unlockInvoiceSchema = z.object({
+  id: z.string().min(1),
+  reason: z.string().optional(),
+});
